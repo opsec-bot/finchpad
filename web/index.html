@@ -76,6 +76,13 @@ const API = location.origin.startsWith("http") ? location.origin : "http://local
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 4) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+// Escape any chain-derived string before it enters innerHTML. Token name/symbol are set by
+// whoever launched the token (arbitrary calldata), so treating them as trusted HTML is a
+// stored-XSS hole: a token named `<img src=x onerror=…>` would run in every viewer's session.
+// Error messages get the same treatment — viem surfaces revert strings, which are also
+// attacker-controlled bytes.
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function api(path) {
   const r = await fetch(API + path);
@@ -98,8 +105,8 @@ async function loadList() {
     const d = await api("/tokens?blocks=3000&limit=25");
     if (!d.launches.length) { $("list").textContent = "no launches in range"; return; }
     $("list").innerHTML = d.launches
-      .map((l) => `<div class="row" data-token="${l.token}">
-          <span>${short(l.token)}</span>
+      .map((l) => `<div class="row" data-token="${esc(l.token)}">
+          <span>${esc(short(l.token))}</span>
           <span class="dim mono">blk ${l.block}${l.initialBuyEth ? " · " + fmt(l.initialBuyEth, 3) + "Ξ" : ""}</span>
         </div>`)
       .join("");
@@ -107,7 +114,7 @@ async function loadList() {
       el.addEventListener("click", () => select(el.dataset.token))
     );
   } catch (e) {
-    $("list").innerHTML = '<span class="warn">' + e.message + "</span>";
+    $("list").innerHTML = '<span class="warn">' + esc(e.message) + "</span>";
   }
 }
 
@@ -119,13 +126,13 @@ async function select(token) {
     const g = t.graduation;
     $("detail").innerHTML = `
       <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
-        <strong style="font-size:16px">${t.name} <span class="dim">$${t.symbol}</span></strong>
+        <strong style="font-size:16px">${esc(t.name)} <span class="dim">$${esc(t.symbol)}</span></strong>
         <span class="pill">${t.knownToFactory ? "known to factory" : "unknown to this factory"}</span>
       </div>
       <div class="kv mono" style="margin-top:10px">
-        <div>address</div><div>${t.address}</div>
-        <div>pool</div><div>${t.pool}</div>
-        <div>deployer</div><div>${t.deployer ?? "<span class='dim'>n/a</span>"}</div>
+        <div>address</div><div>${esc(t.address)}</div>
+        <div>pool</div><div>${esc(t.pool)}</div>
+        <div>deployer</div><div>${t.deployer ? esc(t.deployer) : "<span class='dim'>n/a</span>"}</div>
         <div>price</div><div>${t.priceWeth.toExponential(4)} Ξ</div>
         <div>mcap</div><div>${fmt(t.marketCapWeth, 2)} Ξ</div>
         <div>supply</div><div>${fmt(t.totalSupply, 0)}</div>
@@ -139,7 +146,7 @@ async function select(token) {
     loadChart(token, t.symbol);
     loadTrades(token);
   } catch (e) {
-    $("detail").innerHTML = '<span class="warn">' + e.message + "</span>";
+    $("detail").innerHTML = '<span class="warn">' + esc(e.message) + "</span>";
   }
 }
 
@@ -151,7 +158,7 @@ async function loadChart(token, symbol) {
     $("chartMeta").textContent = `${d.trades} trades · ${c.length} candles @ ${d.interval}s`;
     draw(c);
   } catch (e) {
-    $("chartMeta").innerHTML = '<span class="warn">' + e.message + "</span>";
+    $("chartMeta").innerHTML = '<span class="warn">' + esc(e.message) + "</span>";
   }
 }
 
@@ -187,7 +194,7 @@ async function loadTrades(token) {
         <span class="mono dim">${fmt(t.tokenAmount,0)} ${d.symbol} · ${fmt(t.wethAmount,4)}Ξ</span>
       </div>`).join("");
   } catch (e) {
-    $("trades").innerHTML = '<span class="warn">' + e.message + "</span>";
+    $("trades").innerHTML = '<span class="warn">' + esc(e.message) + "</span>";
   }
 }
 

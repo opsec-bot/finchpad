@@ -52,6 +52,31 @@ async function cached(key, ttlMs, fn) {
 // --- helpers --------------------------------------------------------------------------
 const isAddress = (s) => typeof s === "string" && /^0x[a-fA-F0-9]{40}$/.test(s);
 
+// Query params drive on-chain scans (getLogs is chunked at 1000 blocks/call), so an
+// unbounded `blocks` turns a single unauthenticated request into a full-chain scan —
+// thousands of sequential RPC calls that also bust the TTL cache (blocks is in the key).
+// Clamp every caller-supplied bound to a sane ceiling and fall back on garbage input.
+const MAX_BLOCKS = 50_000n;
+const MAX_LIMIT = 200;
+const MAX_INTERVAL = 86_400; // 1 day of candle bucketing
+
+export function boundedBlocks(v) {
+  let b;
+  try {
+    b = BigInt(v ?? 5000);
+  } catch {
+    return 5000n;
+  }
+  if (b < 1n) return 1n;
+  return b > MAX_BLOCKS ? MAX_BLOCKS : b;
+}
+
+export function boundedInt(v, fallback, max) {
+  const n = Number(v ?? fallback);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.floor(Math.min(n, max));
+}
+
 function send(res, status, body, headers) {
   const payload = JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
   res.writeHead(status, {
@@ -76,8 +101,8 @@ async function route(url) {
 
   // GET /tokens
   if (parts.length === 1) {
-    const blocks = BigInt(q.get("blocks") || 5000);
-    const limit = Number(q.get("limit") || 50);
+    const blocks = boundedBlocks(q.get("blocks"));
+    const limit = boundedInt(q.get("limit"), 50, MAX_LIMIT);
     const launches = await cached(`launches:${blocks}:${limit}`, 15_000, () =>
       getRecentLaunches({ factoryAddress: FACTORY, blocks, limit })
     );
@@ -95,18 +120,18 @@ async function route(url) {
 
   // Sub-resources need pool + ordering, which come from the detail read.
   const detail = await cached(`detail:${token}`, 10_000, () => getTokenDetail(token, FACTORY));
-  const opts = { token, pool: detail.pool, tokenIsToken0: detail.tokenIsToken0, blocks: BigInt(q.get("blocks") || 5000) };
+  const opts = { token, pool: detail.pool, tokenIsToken0: detail.tokenIsToken0, blocks: boundedBlocks(q.get("blocks")) };
 
   // GET /tokens/:address/candles
   if (parts[2] === "candles") {
-    const interval = Number(q.get("interval") || 300);
+    const interval = boundedInt(q.get("interval"), 300, MAX_INTERVAL);
     const out = await cached(`candles:${token}:${opts.blocks}:${interval}`, 15_000, () => getCandles(opts, interval));
     return { status: 200, body: { token, symbol: detail.symbol, interval, ...out } };
   }
 
   // GET /tokens/:address/trades
   if (parts[2] === "trades") {
-    const limit = Number(q.get("limit") || 100);
+    const limit = boundedInt(q.get("limit"), 100, MAX_LIMIT);
     const trades = await cached(`trades:${token}:${opts.blocks}`, 15_000, () => getTrades(opts));
     return { status: 200, body: { token, symbol: detail.symbol, count: trades.length, trades: trades.slice(-limit).reverse() } };
   }
