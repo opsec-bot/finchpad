@@ -6,6 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "api": "node --env-file=.env src/backend/api.js",
     "index:backfill": "node --env-file=.env src/indexer/backfill.js",
     "index:swaps": "node --env-file=.env src/indexer/swaps.js",
     "verify:reference": "node --env-file=.env src/indexer/verifyReference.js"

@@ -46,7 +46,16 @@
       only the project owner can create. Flow is documented in `src/backend/githubClaim.js`:
       authorize → GET /repos/{owner}/{name} → require `permissions.admin` → sign with the
       numeric `id`. Everything downstream of OAuth is built and tested.
-- [ ] Backend REST API + Postgres schema.
+- [x] **Backend REST API** (`src/backend/api.js`, `npm run api`). Zero HTTP deps (this service
+      sits next to a signing key; every dep is attack surface). Endpoints: `/health`,
+      `/tokens`, `/tokens/:address`, `/tokens/:address/candles`, `/tokens/:address/trades`.
+      Reads live off-chain with a TTL cache, so it runs today with no database. Verified
+      against the live pons pool.
+      - Fixed: `getLaunchedToken` returns a ZERO-FILLED struct for tokens not from that
+        factory instead of reverting; the API was reporting `deployer: 0x0` / `poolFee: 0` as
+        real. Now gated on `exists` and surfaced as `knownToFactory`.
+- [x] **Postgres schema** (`src/backend/schema.sql`) for the persistent indexer. Response
+      shapes stay identical when handlers switch from live reads to SQL.
 - [x] **Alchemy: both RH networks enabled** (mainnet + testnet). Key in `.env` (gitignored).
       Indexer reads wired to Alchemy (`src/lib/chain.js`), 9/9 reference checks pass through it.
       Note: free-tier getLogs capped at 10 blocks → use Transfers API / Blockscout PRO for
