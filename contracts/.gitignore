@@ -10,3 +10,6 @@ broadcast/**/dry-run/
 
 # NOTE: lib/ is intentionally committed (vendored deps, not submodules) so the exact
 # OpenZeppelin 5.6.1 / forge-std versions are pinned for reproducible audit builds.
+
+# Local fork seed artifacts (anvil runs as chain 4663, so the 31337 rule misses them)
+broadcast/SeedLocal.s.sol/
