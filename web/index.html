@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>finchpad</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --line: #232a32;
+    --text: #e6edf3; --dim: #8b98a5; --up: #3fb950; --down: #f85149; --accent: #ffb84d;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex;
+    align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; letter-spacing:-0.5px; }
+  .dim { color:var(--dim); }
+  .wrap { display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:7px 0;
+    border-bottom:1px solid var(--line); cursor:pointer; }
+  .row:last-child { border-bottom:0; }
+  .row:hover { color:var(--accent); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; }
+  .kv div:nth-child(odd) { color:var(--dim); }
+  .mono { font-variant-numeric: tabular-nums; }
+  .bar { height:8px; background:#0a0c0f; border-radius:4px; overflow:hidden; border:1px solid var(--line); }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .pill { display:inline-block; padding:1px 7px; border-radius:99px; font-size:12px;
+    border:1px solid var(--line); }
+  .buy { color:var(--up); } .sell { color:var(--down); }
+  canvas { width:100%; height:200px; display:block; }
+  button { background:#1d232b; color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  code { color:var(--accent); }
+  .warn { color:var(--down); }
+</style>
+</head>
+<body>
+<header>
+  <h1>finchpad</h1>
+  <span class="dim">launchpad on Robinhood Chain (4663)</span>
+  <span class="dim" style="margin-left:auto" id="apiState">connecting…</span>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>recent launches</strong>
+        <button id="reload">reload</button>
+      </div>
+      <div id="list" class="dim">loading…</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" id="detail"><span class="dim">select a launch</span></div>
+    <div class="panel" style="margin-top:16px">
+      <strong>price</strong>
+      <canvas id="chart"></canvas>
+      <div id="chartMeta" class="dim"></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <strong>recent trades</strong>
+      <div id="trades" class="dim" style="margin-top:8px">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin.startsWith("http") ? location.origin : "http://localhost:8787";
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 4) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
+const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+
+async function api(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+async function loadHealth() {
+  try {
+    const h = await api("/health");
+    $("apiState").textContent = "api ok · factory " + short(h.factory);
+  } catch (e) {
+    $("apiState").innerHTML = '<span class="warn">api down — run: npm run api</span>';
+  }
+}
+
+async function loadList() {
+  $("list").textContent = "loading…";
+  try {
+    const d = await api("/tokens?blocks=3000&limit=25");
+    if (!d.launches.length) { $("list").textContent = "no launches in range"; return; }
+    $("list").innerHTML = d.launches
+      .map((l) => `<div class="row" data-token="${l.token}">
+          <span>${short(l.token)}</span>
+          <span class="dim mono">blk ${l.block}${l.initialBuyEth ? " · " + fmt(l.initialBuyEth, 3) + "Ξ" : ""}</span>
+        </div>`)
+      .join("");
+    document.querySelectorAll(".row").forEach((el) =>
+      el.addEventListener("click", () => select(el.dataset.token))
+    );
+  } catch (e) {
+    $("list").innerHTML = '<span class="warn">' + e.message + "</span>";
+  }
+}
+
+async function select(token) {
+  $("detail").textContent = "loading…";
+  $("trades").textContent = "—";
+  try {
+    const t = await api("/tokens/" + token);
+    const g = t.graduation;
+    $("detail").innerHTML = `
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+        <strong style="font-size:16px">${t.name} <span class="dim">$${t.symbol}</span></strong>
+        <span class="pill">${t.knownToFactory ? "known to factory" : "unknown to this factory"}</span>
+      </div>
+      <div class="kv mono" style="margin-top:10px">
+        <div>address</div><div>${t.address}</div>
+        <div>pool</div><div>${t.pool}</div>
+        <div>deployer</div><div>${t.deployer ?? "<span class='dim'>n/a</span>"}</div>
+        <div>price</div><div>${t.priceWeth.toExponential(4)} Ξ</div>
+        <div>mcap</div><div>${fmt(t.marketCapWeth, 2)} Ξ</div>
+        <div>supply</div><div>${fmt(t.totalSupply, 0)}</div>
+      </div>
+      ${g ? `<div style="margin-top:12px">
+        <div class="dim">graduation ${fmt(g.pairedPrincipalEth,3)} / ${g.thresholdEth} Ξ
+          ${g.graduated ? '<span class="pill" style="color:var(--up)">graduated</span>' : ""}</div>
+        <div class="bar" style="margin-top:5px"><i style="width:${Math.min(100, g.progress*100)}%"></i></div>
+      </div>` : ""}
+    `;
+    loadChart(token, t.symbol);
+    loadTrades(token);
+  } catch (e) {
+    $("detail").innerHTML = '<span class="warn">' + e.message + "</span>";
+  }
+}
+
+async function loadChart(token, symbol) {
+  $("chartMeta").textContent = "loading candles…";
+  try {
+    const d = await api(`/tokens/${token}/candles?blocks=3000&interval=300`);
+    const c = d.candles;
+    $("chartMeta").textContent = `${d.trades} trades · ${c.length} candles @ ${d.interval}s`;
+    draw(c);
+  } catch (e) {
+    $("chartMeta").innerHTML = '<span class="warn">' + e.message + "</span>";
+  }
+}
+
+function draw(candles) {
+  const cv = $("chart"), dpr = devicePixelRatio || 1;
+  cv.width = cv.clientWidth * dpr; cv.height = 200 * dpr;
+  const x = cv.getContext("2d"); x.scale(dpr, dpr);
+  const W = cv.clientWidth, H = 200, pad = 8;
+  x.clearRect(0, 0, W, H);
+  if (!candles.length) { x.fillStyle = "#8b98a5"; x.fillText("no trades in range", pad, H/2); return; }
+
+  const lo = Math.min(...candles.map(c => c.l)), hi = Math.max(...candles.map(c => c.h));
+  const span = hi - lo || hi || 1;
+  const yOf = (p) => H - pad - ((p - lo) / span) * (H - pad * 2);
+  const bw = Math.max(2, (W - pad * 2) / candles.length - 2);
+
+  candles.forEach((c, i) => {
+    const cx = pad + i * ((W - pad * 2) / candles.length) + bw / 2;
+    const up = c.c >= c.o;
+    x.strokeStyle = x.fillStyle = up ? "#3fb950" : "#f85149";
+    x.beginPath(); x.moveTo(cx, yOf(c.h)); x.lineTo(cx, yOf(c.l)); x.stroke();
+    const yo = yOf(c.o), yc = yOf(c.c);
+    x.fillRect(cx - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yc - yo)));
+  });
+}
+
+async function loadTrades(token) {
+  try {
+    const d = await api(`/tokens/${token}/trades?blocks=3000&limit=15`);
+    if (!d.trades.length) { $("trades").textContent = "no trades in range"; return; }
+    $("trades").innerHTML = d.trades.map(t => `<div class="row" style="cursor:default">
+        <span class="${t.side}">${t.side}</span>
+        <span class="mono dim">${fmt(t.tokenAmount,0)} ${d.symbol} · ${fmt(t.wethAmount,4)}Ξ</span>
+      </div>`).join("");
+  } catch (e) {
+    $("trades").innerHTML = '<span class="warn">' + e.message + "</span>";
+  }
+}
+
+$("reload").addEventListener("click", loadList);
+loadHealth(); loadList();
+</script>
+</body>
+</html>

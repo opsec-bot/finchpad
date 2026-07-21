@@ -10,6 +10,7 @@
 // Usage: node --env-file=.env src/backend/api.js [--port 8787] [--factory 0x...]
 
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { PONS } from "../lib/contracts.js";
@@ -99,10 +100,22 @@ async function route(url) {
   return { status: 404, body: { error: "not found" } };
 }
 
+// Serve the single-page frontend from the same origin (so it needs no CORS and no build).
+const WEB_INDEX = resolve(fileURLToPath(import.meta.url), "..", "..", "..", "web", "index.html");
+
 export const server = createServer(async (req, res) => {
   if (req.method !== "GET") return send(res, 405, { error: "GET only" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
+      if (html) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(html);
+      }
+    }
+
     const { status, body } = await route(url);
     send(res, status, body);
   } catch (err) {
