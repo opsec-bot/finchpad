@@ -50,9 +50,13 @@
       access token is never echoed. Works unsigned in dev (`signed:false`) until
       `FINCH_CLAIM_SIGNER_KEY` + `FINCH_REGISTRY` are provisioned. Module stays separate
       from the read API so production can run it isolated next to the signer key.
-      - [ ] **Rotate the OAuth client secret** (it transited chat during setup) after the
-            first end-to-end browser claim confirms the flow.
-      - [ ] End-to-end browser test (needs a human to authorize on github.com).
+      - [ ] **Rotate the OAuth client secret** (it transited chat during setup) — flow is
+            confirmed, rotation is now unblocked. One click in the OAuth app settings,
+            then swap `GITHUB_CLIENT_SECRET` in `.env`.
+      - [x] End-to-end browser test 2026-07-21: authorized on github.com, admin verified,
+            numeric repoId 1307535933 returned, `signed:false` as designed (no signer key
+            provisioned). Private repo required `GITHUB_OAUTH_SCOPE=repo`; public repos
+            need no scope.
 - [x] **Backend REST API** (`src/backend/api.js`, `npm run api`). Zero HTTP deps (this service
       sits next to a signing key; every dep is attack surface). Endpoints: `/health`,
       `/tokens`, `/tokens/:address`, `/tokens/:address/candles`, `/tokens/:address/trades`.
