@@ -42,10 +42,17 @@
       the signer produces the identical digest — so a domain/type drift between backend and
       contract fails a test instead of silently breaking claims in production. Also guards
       that repoId is GitHub's numeric id, never owner/name.
-- [ ] **GitHub OAuth — BLOCKED ON USER.** Needs a GitHub OAuth app (client id + secret) that
-      only the project owner can create. Flow is documented in `src/backend/githubClaim.js`:
-      authorize → GET /repos/{owner}/{name} → require `permissions.admin` → sign with the
-      numeric `id`. Everything downstream of OAuth is built and tested.
+- [x] **GitHub OAuth built** (`src/backend/githubOauth.js`, mounted at `/auth/github/*`).
+      User created the OAuth app (id+secret in `.env`); flow: single-use 10-min `state`
+      binding token/claimant/repo → GitHub authorize → server-side code exchange → require
+      `permissions.admin` → sign EIP-712 over the numeric repo id. 8 tests (mocked GitHub)
+      cover state replay/expiry, admin gate, signature verification, and that the GitHub
+      access token is never echoed. Works unsigned in dev (`signed:false`) until
+      `FINCH_CLAIM_SIGNER_KEY` + `FINCH_REGISTRY` are provisioned. Module stays separate
+      from the read API so production can run it isolated next to the signer key.
+      - [ ] **Rotate the OAuth client secret** (it transited chat during setup) after the
+            first end-to-end browser claim confirms the flow.
+      - [ ] End-to-end browser test (needs a human to authorize on github.com).
 - [x] **Backend REST API** (`src/backend/api.js`, `npm run api`). Zero HTTP deps (this service
       sits next to a signing key; every dep is attack surface). Endpoints: `/health`,
       `/tokens`, `/tokens/:address`, `/tokens/:address/candles`, `/tokens/:address/trades`.

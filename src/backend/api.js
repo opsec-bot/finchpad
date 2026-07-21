@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { PONS } from "../lib/contracts.js";
 import { getCandles, getRecentLaunches, getTokenDetail, getTrades } from "../lib/tokenData.js";
+import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -23,6 +24,18 @@ const flag = (name, fallback) => {
 };
 
 const PORT = Number(flag("port", process.env.PORT || 8787));
+
+// GitHub claim OAuth. In production this moves to an isolated service next to the signer
+// key (see githubOauth.js security notes); mounting it here is a dev convenience.
+const githubAuth = createGithubAuth({
+  clientId: process.env.GITHUB_CLIENT_ID,
+  clientSecret: process.env.GITHUB_CLIENT_SECRET,
+  redirectUri: process.env.GITHUB_REDIRECT_URI,
+  registry: process.env.FINCH_REGISTRY,
+  chainId: Number(process.env.FINCH_CHAIN_ID || 4663),
+  signerKey: process.env.FINCH_CLAIM_SIGNER_KEY,
+  scope: process.env.GITHUB_OAUTH_SCOPE,
+});
 // Defaults to the live pons factory so the API returns real data before finchpad deploys.
 const FACTORY = flag("factory", process.env.FINCH_FACTORY || PONS.activeFactory.address);
 
@@ -39,12 +52,13 @@ async function cached(key, ttlMs, fn) {
 // --- helpers --------------------------------------------------------------------------
 const isAddress = (s) => typeof s === "string" && /^0x[a-fA-F0-9]{40}$/.test(s);
 
-function send(res, status, body) {
+function send(res, status, body, headers) {
   const payload = JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
     "cache-control": "public, max-age=10",
+    ...headers,
   });
   res.end(payload);
 }
@@ -107,6 +121,16 @@ export const server = createServer(async (req, res) => {
   if (req.method !== "GET") return send(res, 405, { error: "GET only" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    // OAuth responses carry claim signatures — never cacheable.
+    const authed = await githubAuth.handle(url);
+    if (authed) {
+      if (authed.redirect) {
+        res.writeHead(302, { location: authed.redirect, "cache-control": "no-store" });
+        return res.end();
+      }
+      return send(res, authed.status, authed.body, { "cache-control": "no-store" });
+    }
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
