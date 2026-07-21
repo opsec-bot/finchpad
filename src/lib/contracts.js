@@ -36,6 +36,12 @@ export const TOKEN_LAUNCHED = parseAbiItem(
   "event TokenLaunched(address indexed token, address indexed deployer, address indexed dexFactory, address pairToken, address pool, uint256 dexId, uint256 launchConfigId, uint256 positionId, uint256 restrictionsEndBlock, uint256 initialBuyAmount)"
 );
 
+/// finchpad's own launch event. Deliberately NOT pons-shaped — ours carries the fields we
+/// actually index (creator, ordering) instead of pons-specific ones (dexId, launchConfigId).
+export const FINCH_LAUNCHED = parseAbiItem(
+  "event Launched(address indexed token, address indexed creator, address pool, uint256 positionId, bool tokenIsToken0)"
+);
+
 export const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
 
 export const SWAP = parseAbiItem(
@@ -58,6 +64,17 @@ export const factoryAbi = parseAbi([
   "function getLaunchedToken(address token) view returns ((address token, address deployer, address pairedToken, address positionManager, uint256 positionId, uint256 dexId, uint256 launchConfigId, uint256 restrictionsEndBlock, uint256 supply, bool isToken0, uint24 poolFee, bool exists, uint256 initialBuyAmount) launched)",
   "function graduationStatus(address token) view returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)",
   "function locker() view returns (address)",
+]);
+
+/// finchpad's factory/locker reads. Our factory has no getLaunchedToken (that's a pons
+/// function) — launch state lives in the locker, reachable via factory.locker().
+export const finchFactoryAbi = parseAbi([
+  "function locker() view returns (address)",
+  "function graduationStatus(address token) view returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)",
+]);
+
+export const finchLockerAbi = parseAbi([
+  "function launches(address token) view returns (uint256 positionId, uint16 protocolShareBps, bool tokenIsToken0, address controller, address feeWallet, uint256 repoId, bool exists)",
 ]);
 
 export const lockerAbi = parseAbi([

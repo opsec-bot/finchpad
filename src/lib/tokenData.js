@@ -4,8 +4,21 @@
 import { formatEther } from "viem";
 import { publicClient } from "./chain.js";
 import { getLogsChunked } from "./logs.js";
-import { PONS, SWAP, TOKEN_LAUNCHED, factoryAbi, poolAbi, tokenAbi } from "./contracts.js";
+import {
+  PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED,
+  factoryAbi, finchFactoryAbi, finchLockerAbi, poolAbi, tokenAbi,
+} from "./contracts.js";
 import { toCandles } from "./ohlc.js";
+
+// Never scan below this block. Two reasons:
+//  - production: scanning before the factory's deploy block is pure waste.
+//  - local anvil fork: blocks below the fork base are proxied upstream and error out, so a
+//    naive "last 5000 blocks" query crosses the fork boundary and fails.
+const MIN_BLOCK = process.env.FINCHPAD_MIN_BLOCK ? BigInt(process.env.FINCHPAD_MIN_BLOCK) : 0n;
+
+function floorBlock(from) {
+  return from < MIN_BLOCK ? MIN_BLOCK : from;
+}
 
 /** sqrtPriceX96 -> WETH per token, respecting pool ordering. */
 export function priceFromSqrt(sqrtPriceX96, tokenIsToken0) {
@@ -26,7 +39,7 @@ export async function getTokenDetail(token, factoryAddress) {
 
   const tokenIsToken0 = token.toLowerCase() < PONS.weth.toLowerCase();
 
-  const [slot0, launched, graduation] = await Promise.all([
+  const [slot0, ponsLaunched, graduation] = await Promise.all([
     publicClient.readContract({ address: pool, abi: poolAbi, functionName: "slot0" }),
     publicClient
       .readContract({ address: factoryAddress, abi: factoryAbi, functionName: "getLaunchedToken", args: [token] })
@@ -35,6 +48,24 @@ export async function getTokenDetail(token, factoryAddress) {
       .readContract({ address: factoryAddress, abi: factoryAbi, functionName: "graduationStatus", args: [token] })
       .catch(() => null),
   ]);
+
+  // pons exposes getLaunchedToken on the factory; finchpad does not — our launch state lives
+  // in the locker, reached via factory.locker(). Try pons' shape first, then ours.
+  let launched = ponsLaunched?.exists === true ? ponsLaunched : null;
+  if (!launched) {
+    const lockerAddr = await publicClient
+      .readContract({ address: factoryAddress, abi: finchFactoryAbi, functionName: "locker" })
+      .catch(() => null);
+    if (lockerAddr) {
+      const l = await publicClient
+        .readContract({ address: lockerAddr, abi: finchLockerAbi, functionName: "launches", args: [token] })
+        .catch(() => null);
+      // tuple: positionId, protocolShareBps, tokenIsToken0, controller, feeWallet, repoId, exists
+      if (l && l[6] === true) {
+        launched = { exists: true, deployer: l[3], poolFee: 10000, repoId: l[5], feeWallet: l[4] };
+      }
+    }
+  }
 
   const priceWeth = priceFromSqrt(slot0[0], tokenIsToken0);
   const supplyTokens = Number(formatEther(totalSupply));
@@ -57,6 +88,8 @@ export async function getTokenDetail(token, factoryAddress) {
     knownToFactory: known,
     deployer: known ? launched.deployer : null,
     poolFee: known ? Number(launched.poolFee) : null,
+    feeWallet: known ? (launched.feeWallet ?? null) : null,
+    repoId: known && launched.repoId ? launched.repoId.toString() : null,
     graduation: graduation
       ? {
           pairedPrincipalEth: Number(formatEther(graduation[0])),
@@ -71,33 +104,39 @@ export async function getTokenDetail(token, factoryAddress) {
 /** Recent launches from a factory. */
 export async function getRecentLaunches({ factoryAddress, blocks = 5000n, chunkSize = 1000n, limit = 50 }) {
   const latest = await publicClient.getBlockNumber();
-  const fromBlock = latest > blocks ? latest - blocks : 0n;
+  const fromBlock = floorBlock(latest > blocks ? latest - blocks : 0n);
 
-  const logs = await getLogsChunked({
-    address: factoryAddress,
-    event: TOKEN_LAUNCHED,
-    fromBlock,
-    toBlock: latest,
-    chunkSize,
+  // Query BOTH launch-event shapes: pons' TokenLaunched and finchpad's Launched. One
+  // indexer then serves either factory with no configuration, which is what we want while
+  // finchpad reads pons data for comparison.
+  const [ponsLogs, finchLogs] = await Promise.all([
+    getLogsChunked({ address: factoryAddress, event: TOKEN_LAUNCHED, fromBlock, toBlock: latest, chunkSize }).catch(
+      () => []
+    ),
+    getLogsChunked({ address: factoryAddress, event: FINCH_LAUNCHED, fromBlock, toBlock: latest, chunkSize }).catch(
+      () => []
+    ),
+  ]);
+
+  const norm = (l, isFinch) => ({
+    token: l.args.token,
+    deployer: isFinch ? l.args.creator : l.args.deployer,
+    pool: l.args.pool,
+    block: Number(l.blockNumber),
+    txHash: l.transactionHash,
+    initialBuyEth: l.args.initialBuyAmount ? Number(formatEther(l.args.initialBuyAmount)) : 0,
   });
 
-  return logs
+  return [...ponsLogs.map((l) => norm(l, false)), ...finchLogs.map((l) => norm(l, true))]
+    .sort((a, b) => a.block - b.block)
     .slice(-limit)
-    .reverse()
-    .map((l) => ({
-      token: l.args.token,
-      deployer: l.args.deployer,
-      pool: l.args.pool,
-      block: Number(l.blockNumber),
-      txHash: l.transactionHash,
-      initialBuyEth: l.args.initialBuyAmount ? Number(formatEther(l.args.initialBuyAmount)) : 0,
-    }));
+    .reverse();
 }
 
 /** Normalized trades for a token's pool over a block window. */
 export async function getTrades({ token, pool, tokenIsToken0, blocks = 5000n, chunkSize = 1000n }) {
   const latest = await publicClient.getBlockNumber();
-  const fromBlock = latest > blocks ? latest - blocks : 0n;
+  const fromBlock = floorBlock(latest > blocks ? latest - blocks : 0n);
 
   const logs = await getLogsChunked({ address: pool, event: SWAP, fromBlock, toBlock: latest, chunkSize });
 

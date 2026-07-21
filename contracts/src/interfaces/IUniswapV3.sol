@@ -25,6 +25,12 @@ interface IUniswapV3Pool {
         );
 }
 
+interface IWETH {
+    function deposit() external payable;
+    function approve(address spender, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
 /// @notice SwapRouter02-style (no deadline in params).
 interface ISwapRouter02 {
     struct ExactInputSingleParams {

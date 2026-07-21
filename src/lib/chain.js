@@ -10,8 +10,11 @@ import { createPublicClient, defineChain, http } from "viem";
 // Load env with `node --env-file=.env ...` (Node 20+).
 const PUBLIC_RPC = "https://rpc.mainnet.chain.robinhood.com";
 
-const READ_RPC_URL = process.env.ALCHEMY_RH_MAINNET || process.env.FINCHPAD_RPC_URL || PUBLIC_RPC;
-const LOGS_RPC_URL = process.env.FINCHPAD_LOGS_RPC_URL || PUBLIC_RPC;
+// FINCHPAD_RPC_URL wins over the Alchemy default: it's the explicit override, and pointing
+// local dev at an anvil fork (http://localhost:8545) has to beat whatever is in .env.
+const READ_RPC_URL = process.env.FINCHPAD_RPC_URL || process.env.ALCHEMY_RH_MAINNET || PUBLIC_RPC;
+// Logs follow the read RPC when it's explicitly overridden (anvil serves wide ranges fine).
+const LOGS_RPC_URL = process.env.FINCHPAD_LOGS_RPC_URL || process.env.FINCHPAD_RPC_URL || PUBLIC_RPC;
 
 export const robinhoodChain = defineChain({
   id: 4663,

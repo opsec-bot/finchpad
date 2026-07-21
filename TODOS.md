@@ -101,6 +101,35 @@
 - [ ] GitHub OAuth + EIP-712 signer service (network-isolated; signer key in HSM/KMS).
 - [ ] Postgres schema.
 
+## Squeeze GitHub for everything free (revisit before web dev)
+
+Worth doing because it's free infrastructure we're currently not using at all.
+
+**Highest value first:**
+- [ ] **CI on every push** (`.github/workflows/ci.yml`) — `forge test` + `npm test` + `forge build --sizes`.
+      Free tier gives 2,000 Actions min/month on private repos. Catches regressions and builds
+      an audit trail an external auditor can actually look at. Use `foundry-rs/foundry-toolchain`.
+      Note: fork tests need an RPC secret (`ALCHEMY_RH_MAINNET`) in repo secrets, or gate them
+      behind a `--match-path` so CI can run the non-fork suite without credentials.
+- [ ] **Slither in CI** (`crytic/slither-action`) — fail the build on new High/Medium findings.
+      We're at zero High; CI keeps it that way instead of relying on me remembering to re-run it.
+- [ ] **Secret scanning + push protection** — free on all repos now. Would physically block a
+      committed key. Given how many keys have moved through this project (Blockscout, Alchemy,
+      the Telegram bot token), this one is not theoretical.
+- [ ] **Dependabot** — free vuln alerts + auto-PRs for npm deps. `npm audit` is clean today;
+      this keeps it that way without anyone checking.
+- [ ] **Branch protection on master** — require CI green before merge.
+
+**Free only if the repo goes PUBLIC** (ties back to the visibility decision):
+- [ ] **CodeQL** — free for public repos; private needs paid GitHub Advanced Security.
+- [ ] **GitHub Pages** — free static hosting for public repos. Our frontend is a single static
+      HTML file, so Pages could host the read-only UI for nothing. Private repos need Pro/Team.
+
+**Also free, lower priority:**
+- [ ] Codespaces (60 core-hours/month free) — a ready dev env without local setup.
+- [ ] Releases + tags for versioned contract deployments (which address ran which commit).
+- [ ] Issues/Projects instead of this markdown file, once there's more than one person.
+
 ## Phase 3 website (not started)
 
 - [ ] Launch / trade / token page / lock / burn / claim / CTO flows. No blind-signing.
