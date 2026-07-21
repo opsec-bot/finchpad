@@ -141,6 +141,8 @@ contract FinchFactory is ReentrancyGuard {
             tokenIsToken0 ? (supply, uint256(0)) : (uint256(0), supply);
 
         uint128 liquidity;
+        // Deposited amounts intentionally ignored: any shortfall is swept as dust below.
+        // slither-disable-next-line unused-return
         (positionId, liquidity,,) = positionManager.mint(
             INonfungiblePositionManager.MintParams({
                 token0: token0,
