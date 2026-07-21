@@ -16,6 +16,6 @@
   "keywords": ["launchpad", "robinhood-chain", "uniswap-v3", "evm", "defi"],
   "license": "MIT",
   "dependencies": {
-    "viem": "^2.21.0"
+    "viem": "^2.55.5"
   }
 }
