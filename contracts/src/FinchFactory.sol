@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FinchToken} from "./FinchToken.sol";
 import {FinchLocker} from "./FinchLocker.sol";
 import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
@@ -17,7 +19,9 @@ import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
  * off-chain by the finchpad UI. The contract validates ordering and single-sidedness; it
  * does not hardcode a price. This keeps the curve a product decision, not a contract one.
  */
-contract FinchFactory {
+contract FinchFactory is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     uint24 public constant POOL_FEE = 10_000; // 1%
     uint256 public constant LAUNCH_FEE = 0.0005 ether;
     /// @notice Curve A graduation marker. Cosmetic: trading continues in the same pool.
@@ -28,7 +32,11 @@ contract FinchFactory {
     address public immutable weth;
     uint16 public immutable protocolShareBps; // 2000 = 80/20 creator/protocol
     address public immutable admin;
-    address public feeRecipient;
+    // Immutable by design, not just for gas: a launch-fee destination that cannot be changed
+    // means a compromised admin cannot redirect protocol revenue to themselves. If the
+    // destination ever needs to change, point this at a multisig/splitter you control and
+    // rotate inside that, or ship a new factory (contracts here are immutable anyway).
+    address public immutable feeRecipient;
     FinchLocker public locker; // settable once (breaks factory <-> locker deploy cycle)
 
     struct LaunchParams {
@@ -53,6 +61,8 @@ contract FinchFactory {
     error NotAdmin();
     error InsufficientLaunchFee();
     error FeeForwardFailed();
+    error RefundFailed();
+    error NoLiquidityMinted();
     error ZeroAddress();
 
     constructor(
@@ -103,6 +113,7 @@ contract FinchFactory {
     function launch(LaunchParams calldata p)
         external
         payable
+        nonReentrant
         returns (address token, address pool, uint256 positionId)
     {
         if (address(locker) == address(0)) revert LockerNotSet();
@@ -125,11 +136,12 @@ contract FinchFactory {
         // 4. Deposit the full supply as single-sided liquidity. The token side is whichever
         //    of amount0/amount1 corresponds to the launch token; the WETH side is zero.
         uint256 supply = FinchToken(token).SUPPLY();
-        IERC20(token).approve(address(positionManager), supply);
+        IERC20(token).forceApprove(address(positionManager), supply);
         (uint256 amount0Desired, uint256 amount1Desired) =
             tokenIsToken0 ? (supply, uint256(0)) : (uint256(0), supply);
 
-        (positionId,,,) = positionManager.mint(
+        uint128 liquidity;
+        (positionId, liquidity,,) = positionManager.mint(
             INonfungiblePositionManager.MintParams({
                 token0: token0,
                 token1: token1,
@@ -145,17 +157,28 @@ contract FinchFactory {
             })
         );
 
+        // A mint that produces no liquidity would leave a "successful" launch with an empty
+        // pool — nothing to trade against. Bad tick params must fail loudly, not silently.
+        if (liquidity == 0) revert NoLiquidityMinted();
+
         // Single-sided mints leave microscopic dust (liquidity rounding). Sweep it to the
         // creator so the factory never accumulates stuck balances across launches.
         uint256 dust = IERC20(token).balanceOf(address(this));
-        if (dust > 0) IERC20(token).transfer(msg.sender, dust);
+        if (dust > 0) IERC20(token).safeTransfer(msg.sender, dust);
 
         // 5. Register the launch with the locker (fee split snapshot + control = creator).
         locker.registerLaunch(token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.repoId);
 
-        // 6. Forward the launch fee.
-        (bool ok,) = feeRecipient.call{value: msg.value}("");
+        // 6. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
+        //    msg.value would silently pocket a fat-fingered 1 ETH on a 0.0005 ETH fee.
+        (bool ok,) = feeRecipient.call{value: LAUNCH_FEE}("");
         if (!ok) revert FeeForwardFailed();
+
+        uint256 excess = msg.value - LAUNCH_FEE;
+        if (excess > 0) {
+            (bool refunded,) = msg.sender.call{value: excess}("");
+            if (!refunded) revert RefundFailed();
+        }
 
         emit Launched(token, msg.sender, pool, positionId, tokenIsToken0);
     }

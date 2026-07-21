@@ -115,6 +115,41 @@ contract ForkLaunchTest is Test {
         assertEq(feeRecipient.balance, 0.0005 ether, "launch fee forwarded");
     }
 
+    /// Overpaying the launch fee must be refunded, not silently pocketed. Forwarding the
+    /// whole msg.value would capture a fat-fingered 1 ETH on a 0.0005 ETH fee.
+    function test_fork_overpaymentIsRefunded() public {
+        address predicted = vm.computeCreateAddress(address(factory), 1);
+        bool tokenIsToken0 = predicted < WETH;
+        int24 tickLower;
+        int24 tickUpper;
+        uint160 sqrtP;
+        (sqrtP, tickLower, tickUpper) = tokenIsToken0
+            ? (SQRT_A_TOKEN0, int24(-207000), int24(887200))
+            : (SQRT_A_TOKEN1, int24(-887200), int24(207000));
+
+        FinchFactory.LaunchParams memory p = FinchFactory.LaunchParams({
+            name: "Over Pay",
+            symbol: "OVER",
+            logo: "",
+            description: "",
+            socials: _socials(),
+            repoId: 0,
+            initialSqrtPriceX96: sqrtP,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            restrictionBlocks: 3
+        });
+
+        deal(creator, 5 ether);
+        uint256 before = creator.balance;
+
+        vm.prank(creator);
+        factory.launch{value: 1 ether}(p); // wildly overpaying a 0.0005 ETH fee
+
+        assertEq(feeRecipient.balance, 0.0005 ether, "fee recipient gets exactly the fee");
+        assertEq(before - creator.balance, 0.0005 ether, "creator only out the fee, rest refunded");
+    }
+
     function test_fork_buyMovesGraduationProgress() public {
         (address token,,,) = _launchCurveA();
 

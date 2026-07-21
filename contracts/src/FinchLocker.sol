@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
+import {IFinchLockerControl} from "./interfaces/IFinchLockerControl.sol";
 
 /**
  * @title FinchLocker
@@ -21,7 +22,7 @@ import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
  * The protocol share is sent to `protocolFeeRecipient`. The FINCH buyback-burn runs
  * downstream of that recipient (keeper/TWAP), not inside fee collection, matching pons.
  */
-contract FinchLocker is ReentrancyGuard {
+contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Launch {
@@ -41,12 +42,13 @@ contract FinchLocker is ReentrancyGuard {
     address public immutable weth;
     address public registry; // set once after deploy (registry <-> locker constructor cycle)
     address public protocolFeeRecipient;
-    address public admin; // may update protocolFeeRecipient and set the registry once
+    address public immutable admin; // may update protocolFeeRecipient and set the registry once
 
     mapping(address token => Launch) public launches;
 
     event LaunchRegistered(address indexed token, uint256 positionId, address controller, uint16 protocolShareBps);
     event ControlChanged(address indexed token, address controller, address feeWallet);
+    event RegistrySet(address indexed registry);
     event FeesCollected(address indexed token, uint256 tokenToCreator, uint256 wethToCreator, uint256 tokenToProtocol, uint256 wethToProtocol);
 
     error NotFactory();
@@ -90,6 +92,7 @@ contract FinchLocker is ReentrancyGuard {
         if (registry_ == address(0)) revert ZeroAddress();
         if (registry != address(0)) revert AlreadyRegistered();
         registry = registry_;
+        emit RegistrySet(registry_);
     }
 
     // --- launch registration (factory) ---
@@ -118,7 +121,7 @@ contract FinchLocker is ReentrancyGuard {
 
     // --- fee rights (registry only) ---
 
-    function setControl(address token, address controller, address feeWallet) external onlyRegistry {
+    function setControl(address token, address controller, address feeWallet) external override onlyRegistry {
         Launch storage l = launches[token];
         if (!l.exists) revert UnknownToken();
         if (controller == address(0) || feeWallet == address(0)) revert ZeroAddress();
@@ -127,15 +130,15 @@ contract FinchLocker is ReentrancyGuard {
         emit ControlChanged(token, controller, feeWallet);
     }
 
-    function controllerOf(address token) external view returns (address) {
+    function controllerOf(address token) external view override returns (address) {
         return launches[token].controller;
     }
 
-    function feeWalletOf(address token) external view returns (address) {
+    function feeWalletOf(address token) external view override returns (address) {
         return launches[token].feeWallet;
     }
 
-    function repoIdOf(address token) external view returns (uint256) {
+    function repoIdOf(address token) external view override returns (uint256) {
         return launches[token].repoId;
     }
 

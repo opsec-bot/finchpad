@@ -44,6 +44,7 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
 
     error NotFactory();
     error PoolAlreadySet();
+    error ZeroAddress();
     error LaunchBlockCreatorOnly();
     error MaxWalletExceeded();
     error MaxBuyExceeded();
@@ -101,6 +102,9 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
     function setLiquidityPool(address pool) external {
         if (msg.sender != factory) revert NotFactory();
         if (liquidityPool != address(0)) revert PoolAlreadySet();
+        // A zero pool would leave `liquidityPool == address(0)`, which the _update hook
+        // treats as "protection inactive" — silently disabling the whole anti-snipe window.
+        if (pool == address(0)) revert ZeroAddress();
         liquidityPool = pool;
     }
 

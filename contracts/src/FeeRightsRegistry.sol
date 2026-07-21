@@ -4,13 +4,7 @@ pragma solidity 0.8.30;
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-interface IFinchLockerControl {
-    function setControl(address token, address controller, address feeWallet) external;
-    function controllerOf(address token) external view returns (address);
-    function feeWalletOf(address token) external view returns (address);
-    function repoIdOf(address token) external view returns (uint256);
-}
+import {IFinchLockerControl} from "./interfaces/IFinchLockerControl.sol";
 
 /**
  * @title FeeRightsRegistry
@@ -40,7 +34,7 @@ contract FeeRightsRegistry is EIP712, Ownable {
     event ControlHandedOff(address indexed token, address indexed from, address to);
     event CTOApproved(address indexed token, address newController);
     event GithubClaimed(address indexed token, uint256 indexed repoId, address claimant);
-    event TrustedSignerUpdated(address signer);
+    event TrustedSignerUpdated(address indexed signer);
 
     error NotController();
     error GithubDisabled();

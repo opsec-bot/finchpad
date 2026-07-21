@@ -64,6 +64,15 @@ contract FinchTokenTest is Test {
         token.setLiquidityPool(address(0xBEEF));
     }
 
+    /// A zero pool would make _update treat protection as inactive, silently disabling the
+    /// entire anti-snipe window. Must be rejected.
+    function test_setLiquidityPool_rejectsZero() public {
+        FinchToken t2 = FinchToken(Clones.clone(address(impl)));
+        t2.initialize("t", "t", "", "", _socials(), creator, treasury, 3);
+        vm.expectRevert(FinchToken.ZeroAddress.selector);
+        t2.setLiquidityPool(address(0));
+    }
+
     function test_setLiquidityPool_onlyFactory() public {
         FinchToken t2 = FinchToken(Clones.clone(address(impl)));
         t2.initialize("t", "t", "", "", _socials(), creator, treasury, 3);
