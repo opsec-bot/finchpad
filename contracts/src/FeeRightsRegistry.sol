@@ -114,6 +114,20 @@ contract FeeRightsRegistry is EIP712, Ownable {
         emit GithubClaimed(token, repoId, msg.sender);
     }
 
+    /**
+     * @notice The exact EIP-712 digest the backend signer must sign for a GitHub claim.
+     * @dev Exposed so the signer service and frontend can verify they're producing the
+     *      identical digest this contract will check. Mismatch here is the most likely
+     *      integration bug in the whole claim flow.
+     */
+    function claimDigest(address token, uint256 repoId, address claimant, uint256 deadline)
+        external
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(keccak256(abi.encode(GITHUB_CLAIM_TYPEHASH, token, repoId, claimant, deadline)));
+    }
+
     // --- admin ---
 
     function setTrustedSigner(address signer) external onlyOwner {
