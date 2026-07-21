@@ -99,7 +99,12 @@ export function createGithubAuth({
         headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "finchpad-claims" },
       });
       if (!repoRes.ok) {
-        return { status: 502, body: { error: `github repo lookup failed (${repoRes.status})` } };
+        // GitHub 404s private repos the token can't see (rather than 403), so without
+        // "repo" scope a private repo looks nonexistent.
+        const hint = repoRes.status === 404 && !scope.includes("repo")
+          ? " — private repo? claims on private repos need GITHUB_OAUTH_SCOPE=repo"
+          : "";
+        return { status: 502, body: { error: `github repo lookup failed (${repoRes.status})${hint}` } };
       }
       const repoInfo = await repoRes.json();
       if (!repoInfo.permissions?.admin) {
