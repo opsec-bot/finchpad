@@ -1,10 +1,13 @@
 // GitHub-claim signing for finchpad.
 //
-// A repo owner proves ownership off-chain (GitHub OAuth), then this service signs an
-// EIP-712 attestation that FeeRightsRegistry.claimGithub() verifies on-chain.
+// A GitHub identity proves itself off-chain (OAuth), then this service signs an EIP-712
+// attestation that FeeRightsRegistry.claimGithub() verifies on-chain. Two claim kinds,
+// matching the on-chain ClaimKind enum:
+//   REPO (1): githubId = numeric repo id, claimable by an admin of that repo
+//   USER (2): githubId = numeric user id, claimable by that account (bags.fm-style)
 //
 // SECURITY: the signing key is the crown jewel of this whole feature. Anyone holding it can
-// claim the fee rights of every repo-launched token. It must live in an HSM/KMS or behind a
+// claim the fee rights of every GitHub-launched token. It must live in an HSM/KMS or behind a
 // multisig, and this module must run network-isolated from the public API. Never a hot key
 // in a .env on the same box that serves user traffic.
 //
@@ -17,17 +20,24 @@ import { privateKeyToAccount } from "viem/accounts";
 export const CLAIM_DOMAIN_NAME = "finchpad";
 export const CLAIM_DOMAIN_VERSION = "1";
 
+/** Mirrors the on-chain ClaimKind enum (None = 0 never appears in a signed claim). */
+export const CLAIM_KIND = { REPO: 1, USER: 2 };
+
 export const CLAIM_TYPES = {
   GithubClaim: [
     { name: "token", type: "address" },
-    { name: "repoId", type: "uint256" },
+    { name: "claimKind", type: "uint8" },
+    { name: "githubId", type: "uint256" },
     { name: "claimant", type: "address" },
     { name: "deadline", type: "uint256" },
   ],
 };
 
 /** Build the exact EIP-712 payload the registry verifies. */
-export function buildClaimPayload({ registry, chainId, token, repoId, claimant, deadline }) {
+export function buildClaimPayload({ registry, chainId, token, claimKind, githubId, claimant, deadline }) {
+  if (claimKind !== CLAIM_KIND.REPO && claimKind !== CLAIM_KIND.USER) {
+    throw new Error(`claimKind must be ${CLAIM_KIND.REPO} (repo) or ${CLAIM_KIND.USER} (user), got ${claimKind}`);
+  }
   return {
     domain: {
       name: CLAIM_DOMAIN_NAME,
@@ -39,7 +49,8 @@ export function buildClaimPayload({ registry, chainId, token, repoId, claimant, 
     primaryType: "GithubClaim",
     message: {
       token,
-      repoId: BigInt(repoId),
+      claimKind,
+      githubId: BigInt(githubId),
       claimant,
       deadline: BigInt(deadline),
     },
@@ -53,7 +64,7 @@ export function claimDigest(params) {
 
 /**
  * Sign a GitHub claim.
- * @param {object} params registry, chainId, token, repoId, claimant, deadline
+ * @param {object} params registry, chainId, token, claimKind, githubId, claimant, deadline
  * @param {`0x${string}`} privateKey signer key (HSM/KMS in production)
  * @returns {Promise<`0x${string}`>} signature for FeeRightsRegistry.claimGithub()
  */
@@ -63,20 +74,13 @@ export async function signClaim(params, privateKey) {
 }
 
 /**
- * Bind claims to GitHub's NUMERIC repo id, never the "owner/name" string.
- * Repos get renamed and transferred constantly, and a deleted name can be re-registered by
- * a squatter who would then hold a valid claim to someone else's fee stream.
- *
- * OAuth is deliberately not implemented here yet: it needs a GitHub OAuth app (client id +
- * secret) that only the project owner can create. The flow, once those exist:
- *   1. user authorizes with scope `repo` (or `read:org` for org repos)
- *   2. GET /repos/{owner}/{name} -> read `id` (numeric) and `permissions.admin`
- *   3. require permissions.admin === true
- *   4. sign (token, repoId=id, claimant=user's wallet, deadline=now+15min)
+ * Bind claims to GitHub's NUMERIC ids, never names. Repos get renamed and transferred,
+ * usernames get released and re-registered — a squatter re-registering a name would then
+ * hold a valid claim to someone else's fee stream. The numeric id is permanent.
  */
-export function assertNumericRepoId(repoId) {
-  if (typeof repoId === "string" && !/^\d+$/.test(repoId)) {
-    throw new Error(`repoId must be GitHub's numeric id, got "${repoId}" (never owner/name)`);
+export function assertNumericGithubId(githubId) {
+  if (typeof githubId === "string" && !/^\d+$/.test(githubId)) {
+    throw new Error(`githubId must be GitHub's numeric id, got "${githubId}" (never a name)`);
   }
-  return BigInt(repoId);
+  return BigInt(githubId);
 }

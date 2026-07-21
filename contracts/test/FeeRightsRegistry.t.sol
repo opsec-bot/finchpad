@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {FeeRightsRegistry} from "../src/FeeRightsRegistry.sol";
+import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
 import {MockPositionManager, MockERC20} from "./mocks/Mocks.sol";
 
 contract FeeRightsRegistryTest is Test {
@@ -17,13 +18,16 @@ contract FeeRightsRegistryTest is Test {
     address signer;
     uint256 signerPk;
 
-    // "tokens" only need to be addresses the locker has registered.
-    address plainToken = makeAddr("plainToken"); // repoId 0, github disabled
-    address repoToken = makeAddr("repoToken"); // repoId 12345
+    // "tokens" only need to be addresses the locker has registered. (MockERC20s because
+    // settling a claim transfers escrow balances, which requires real token code.)
+    address plainToken; // no github binding, claims disabled
+    address repoToken; // bound to a repo id
+    address userToken; // bound to a user id
     uint256 constant REPO_ID = 12345;
+    uint256 constant USER_ID = 67890;
 
     bytes32 constant TYPEHASH =
-        keccak256("GithubClaim(address token,uint256 repoId,address claimant,uint256 deadline)");
+        keccak256("GithubClaim(address token,uint8 claimKind,uint256 githubId,address claimant,uint256 deadline)");
 
     function setUp() public {
         (signer, signerPk) = makeAddrAndKey("signer");
@@ -37,8 +41,12 @@ contract FeeRightsRegistryTest is Test {
         vm.prank(admin);
         locker.setRegistry(address(registry));
 
-        locker.registerLaunch(plainToken, 1, 2000, true, creator, 0);
-        locker.registerLaunch(repoToken, 2, 2000, true, creator, REPO_ID);
+        plainToken = address(new MockERC20("P", "P"));
+        repoToken = address(new MockERC20("R", "R"));
+        userToken = address(new MockERC20("U", "U"));
+        locker.registerLaunch(plainToken, 1, 2000, true, creator, ClaimKind.None, 0);
+        locker.registerLaunch(repoToken, 2, 2000, true, creator, ClaimKind.Repo, REPO_ID);
+        locker.registerLaunch(userToken, 3, 2000, true, creator, ClaimKind.User, USER_ID);
     }
 
     // --- controller-signed ---
@@ -87,7 +95,7 @@ contract FeeRightsRegistryTest is Test {
 
     // --- github claim ---
 
-    function _sign(address token, uint256 repoId, address claimant, uint256 deadline, uint256 pk)
+    function _sign(address token, ClaimKind kind, uint256 githubId, address claimant, uint256 deadline, uint256 pk)
         internal
         view
         returns (bytes memory)
@@ -101,81 +109,121 @@ contract FeeRightsRegistryTest is Test {
                 address(registry)
             )
         );
-        bytes32 structHash = keccak256(abi.encode(TYPEHASH, token, repoId, claimant, deadline));
+        bytes32 structHash = keccak256(abi.encode(TYPEHASH, token, kind, githubId, claimant, deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function test_claimGithub_happyPath() public {
+    function test_claimGithub_repoHappyPath() public {
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, REPO_ID, claimant, deadline, signerPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, signerPk);
 
         vm.prank(claimant);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
 
         assertEq(locker.controllerOf(repoToken), claimant);
         assertEq(locker.feeWalletOf(repoToken), claimant);
     }
 
+    function test_claimGithub_userHappyPath() public {
+        address claimant = makeAddr("ghUser");
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _sign(userToken, ClaimKind.User, USER_ID, claimant, deadline, signerPk);
+
+        vm.prank(claimant);
+        registry.claimGithub(userToken, ClaimKind.User, USER_ID, deadline, sig);
+
+        assertEq(locker.controllerOf(userToken), claimant);
+        (,, bool claimed) = locker.githubBindingOf(userToken);
+        assertTrue(claimed);
+    }
+
     function test_claimGithub_disabledForPlainToken() public {
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(plainToken, 0, claimant, deadline, signerPk);
+        bytes memory sig = _sign(plainToken, ClaimKind.None, 0, claimant, deadline, signerPk);
         vm.prank(claimant);
         vm.expectRevert(FeeRightsRegistry.GithubDisabled.selector);
-        registry.claimGithub(plainToken, 0, deadline, sig);
+        registry.claimGithub(plainToken, ClaimKind.None, 0, deadline, sig);
     }
 
-    function test_claimGithub_repoMismatchReverts() public {
+    function test_claimGithub_idMismatchReverts() public {
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, 99999, claimant, deadline, signerPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, 99999, claimant, deadline, signerPk);
         vm.prank(claimant);
-        vm.expectRevert(FeeRightsRegistry.RepoMismatch.selector);
-        registry.claimGithub(repoToken, 99999, deadline, sig);
+        vm.expectRevert(FeeRightsRegistry.BindingMismatch.selector);
+        registry.claimGithub(repoToken, ClaimKind.Repo, 99999, deadline, sig);
+    }
+
+    function test_claimGithub_kindMismatchReverts() public {
+        // a signature for user id N must not claim a token bound to repo id N
+        address claimant = makeAddr("tricky");
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _sign(repoToken, ClaimKind.User, REPO_ID, claimant, deadline, signerPk);
+        vm.prank(claimant);
+        vm.expectRevert(FeeRightsRegistry.BindingMismatch.selector);
+        registry.claimGithub(repoToken, ClaimKind.User, REPO_ID, deadline, sig);
+    }
+
+    function test_claimGithub_secondClaimReverts() public {
+        address claimant = makeAddr("repoOwner");
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.prank(claimant);
+        registry.claimGithub(
+            repoToken, ClaimKind.Repo, REPO_ID, deadline, _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, signerPk)
+        );
+
+        // even a fresh, validly-signed claim for another wallet must fail once claimed
+        address second = makeAddr("secondAdmin");
+        vm.prank(second);
+        vm.expectRevert(FeeRightsRegistry.AlreadyClaimed.selector);
+        registry.claimGithub(
+            repoToken, ClaimKind.Repo, REPO_ID, deadline, _sign(repoToken, ClaimKind.Repo, REPO_ID, second, deadline, signerPk)
+        );
     }
 
     function test_claimGithub_expiredReverts() public {
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, REPO_ID, claimant, deadline, signerPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, signerPk);
         vm.warp(deadline + 1);
         vm.prank(claimant);
         vm.expectRevert(FeeRightsRegistry.ClaimExpired.selector);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
     }
 
     function test_claimGithub_replayReverts() public {
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, REPO_ID, claimant, deadline, signerPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, signerPk);
         vm.prank(claimant);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
-        // second time, same signature
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
+        // second time, same signature (AlreadyClaimed fires before the digest check)
         vm.prank(claimant);
-        vm.expectRevert(FeeRightsRegistry.ClaimAlreadyUsed.selector);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
+        vm.expectRevert(FeeRightsRegistry.AlreadyClaimed.selector);
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
     }
 
     function test_claimGithub_badSignerReverts() public {
         (, uint256 wrongPk) = makeAddrAndKey("attacker");
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, REPO_ID, claimant, deadline, wrongPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, wrongPk);
         vm.prank(claimant);
         vm.expectRevert(FeeRightsRegistry.BadSignature.selector);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
     }
 
     function test_claimGithub_wrongClaimantReverts() public {
         // signature bound to `claimant`, but a different caller submits it
         address claimant = makeAddr("repoOwner");
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _sign(repoToken, REPO_ID, claimant, deadline, signerPk);
+        bytes memory sig = _sign(repoToken, ClaimKind.Repo, REPO_ID, claimant, deadline, signerPk);
         vm.prank(makeAddr("thief"));
         vm.expectRevert(FeeRightsRegistry.BadSignature.selector);
-        registry.claimGithub(repoToken, REPO_ID, deadline, sig);
+        registry.claimGithub(repoToken, ClaimKind.Repo, REPO_ID, deadline, sig);
     }
 }

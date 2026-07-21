@@ -7,6 +7,7 @@ import {FinchToken} from "../src/FinchToken.sol";
 import {FinchFactory} from "../src/FinchFactory.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {FeeRightsRegistry} from "../src/FeeRightsRegistry.sol";
+import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
 import {
     IUniswapV3Factory,
     INonfungiblePositionManager,
@@ -77,7 +78,8 @@ contract ForkLaunchTest is Test {
             logo: "logo://",
             description: "curve A launch on a fork",
             socials: _socials(),
-            repoId: 0,
+            claimKind: ClaimKind.None,
+            githubId: 0,
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
@@ -110,7 +112,7 @@ contract ForkLaunchTest is Test {
         // LP locked; control = creator; 80/20 snapshot
         assertEq(INonfungiblePositionManager(POSITION_MANAGER).ownerOf(positionId), address(locker), "locker owns LP");
         assertEq(locker.controllerOf(token), creator, "creator controls fee rights");
-        (, uint16 protocolBps,,,,,) = locker.launches(token);
+        (, uint16 protocolBps,,,,,,,,,,) = locker.launches(token);
         assertEq(protocolBps, 2000, "80/20 split snapshotted");
 
         assertEq(feeRecipient.balance, 0.0005 ether, "launch fee forwarded");
@@ -134,7 +136,8 @@ contract ForkLaunchTest is Test {
             logo: "",
             description: "",
             socials: _socials(),
-            repoId: 0,
+            claimKind: ClaimKind.None,
+            githubId: 0,
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,

@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {FinchLock} from "../src/FinchLock.sol";
+import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
 import {MockERC20, MockPositionManager} from "./mocks/Mocks.sol";
 
 /// Property tests over the two money-handling paths: fee splitting and vesting.
@@ -42,7 +43,7 @@ contract FuzzTest is Test {
         address t = address(uint160(uint256(keccak256(abi.encode(tokenFees, wethFees, protocolBps)))));
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, 0);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0);
 
         token.mint(address(pm), tokenFees);
         weth.mint(address(pm), wethFees);
@@ -69,7 +70,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, 0);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0);
 
         token.mint(address(pm), fees);
         (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
@@ -82,6 +83,40 @@ contract FuzzTest is Test {
         // Integer division favors the creator, so protocol <= ceil of its nominal share.
         uint256 nominal = (uint256(fees) * protocolBps) / 10_000;
         assertLe(token.balanceOf(protocol), nominal + 1, "protocol cannot over-take");
+    }
+
+    /// GitHub escrow conserves every wei too: while unclaimed, escrow + protocol equals the
+    /// exact collected amount, and settling pays out exactly the escrow — across any number
+    /// of collects, any fee amounts, any split.
+    function testFuzz_escrowConservesAndSettlesExactly(uint128 fees1, uint128 fees2, uint16 protocolBps) public {
+        protocolBps = uint16(bound(protocolBps, 0, 10_000));
+
+        bool tokenIsToken0 = address(token) < address(weth);
+        vm.prank(factory);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.User, 42);
+
+        uint256 total;
+        uint128[2] memory rounds = [fees1, fees2];
+        for (uint256 i = 0; i < 2; i++) {
+            token.mint(address(pm), rounds[i]);
+            (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
+                ? (address(token), address(weth), uint256(rounds[i]), uint256(0))
+                : (address(weth), address(token), uint256(0), uint256(rounds[i]));
+            pm.setCollectReturns(t0, t1, a0, a1);
+            locker.collect(address(token));
+            total += rounds[i];
+        }
+
+        (uint256 escrowed,,) = locker.escrowOf(address(token));
+        assertEq(escrowed + token.balanceOf(protocol), total, "escrow + protocol must equal collected");
+        assertEq(token.balanceOf(address(locker)), escrowed, "locker holds exactly the escrow");
+
+        address claimant = makeAddr("claimant");
+        vm.prank(registry);
+        locker.settleGithubClaim(address(token), claimant);
+
+        assertEq(token.balanceOf(claimant), escrowed, "settle pays exactly the escrow");
+        assertEq(token.balanceOf(address(locker)), 0, "no dust stranded after settle");
     }
 
     // --- vesting -------------------------------------------------------------------------

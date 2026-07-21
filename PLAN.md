@@ -97,11 +97,19 @@ we do the same).
   - **CTO** (RESOLVED per your call: manual request + admin review): community submits a
     request, an admin reviews for genuine abandonment, admin approves, registry allows the
     `setFeeRedirect`. Same model as pons. No on-chain vote, no inactivity timer.
-  - **GitHub claim**: backend verifies repo admin via OAuth, signs an EIP-712 message
-    `(repoId, claimant, deadline, nonce, chainId)`. Registry verifies the signature against
-    a known signer key, then allows the redirect. Bind to GitHub's NUMERIC repo id, never
-    the `owner/name` string (repos get renamed and re-registered, a squatter could claim
-    someone else's fees).
+  - **GitHub claim (two kinds, bags.fm-style)**: a launch may bind its fee right to a
+    GitHub **repo** (claimed by a repo admin, verified via OAuth) or a GitHub **user**
+    (claimed by that account simply OAuth-ing — no permission check needed). Backend signs
+    an EIP-712 message `(token, claimKind, githubId, claimant, deadline)`; the registry
+    verifies against the trusted signer. Bind to GitHub's NUMERIC ids, never names
+    (repos/usernames get renamed and re-registered, a squatter could claim someone else's
+    fees). **Pre-claim escrow**: GitHub launches give the launcher NO fee rights — the
+    creator share escrows in the locker until the identity claims (killing launch-on-a-
+    famous-repo fee farming); claims pay out the full backlog; after 365 days unclaimed,
+    anyone can sweep the escrow to the protocol recipient (FINCH buyback path). Full
+    lifecycle emitted as indexed events (GithubBound / EscrowAccrued / GithubClaimSettled /
+    EscrowSwept) so charts and external indexers (DexScreener-style) can render claim
+    markers and per-creator token lists from logs alone.
 - **Burns (RESOLVED: FINCH buyback-burn)**: 80% of protocol fees (matching pons) fund a
   buyback of the FINCH platform token via the V3 router, then burn to `0xdead`. The value
   is the buyback (real revenue, real buy pressure), the burn just distributes it pro-rata

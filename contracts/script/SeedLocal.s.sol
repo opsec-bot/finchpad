@@ -8,6 +8,7 @@ import {FinchFactory} from "../src/FinchFactory.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {FeeRightsRegistry} from "../src/FeeRightsRegistry.sol";
 import {FinchLock} from "../src/FinchLock.sol";
+import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
 import {ISwapRouter02, IWETH} from "../src/interfaces/IUniswapV3.sol";
 
 /**
@@ -58,13 +59,15 @@ contract SeedLocal is Script {
         IWETH(WETH).deposit{value: 3 ether}();
         IWETH(WETH).approve(SWAP_ROUTER, type(uint256).max);
 
-        address a = _launch("Finch Genesis", "GENESIS", "the first one", 0);
-        address b = _launch("Doge Finch", "DFINCH", "much launch", 0);
-        address c = _launch("Repo Coin", "REPO", "launched for a github repo", 123456789);
+        address a = _launch("Finch Genesis", "GENESIS", "the first one", ClaimKind.None, 0);
+        address b = _launch("Doge Finch", "DFINCH", "much launch", ClaimKind.None, 0);
+        address c = _launch("Repo Coin", "REPO", "launched for a github repo", ClaimKind.Repo, 123456789);
+        address d = _launch("Dev Coin", "DEVC", "launched for a github user", ClaimKind.User, 987654321);
 
         _buy(a, 0.4 ether);
         _buy(b, 0.15 ether);
         _buy(c, 0.05 ether);
+        _buy(d, 0.02 ether);
         _buy(a, 0.25 ether); // second trade so charts have more than one candle point
 
         vm.stopBroadcast();
@@ -77,13 +80,14 @@ contract SeedLocal is Script {
         console.log("FinchLock:         ", address(lockVault));
         console.log("token GENESIS:     ", a);
         console.log("token DFINCH:      ", b);
-        console.log("token REPO:        ", c, "(repoId 123456789)");
+        console.log("token REPO:        ", c, "(repo id 123456789, fees escrow until claim)");
+        console.log("token DEVC:        ", d, "(user id 987654321, fees escrow until claim)");
         console.log("");
         console.log("Point the API at it:");
         console.log("  FINCHPAD_RPC_URL=http://localhost:8545 npm run api -- --factory <FinchFactory>");
     }
 
-    function _launch(string memory name, string memory symbol, string memory desc, uint256 repoId)
+    function _launch(string memory name, string memory symbol, string memory desc, ClaimKind kind, uint256 githubId)
         internal
         returns (address token)
     {
@@ -104,7 +108,8 @@ contract SeedLocal is Script {
                 logo: "",
                 description: desc,
                 socials: FinchToken.Socials("@finchpad", "t.me/finchpad", "", "finchpad.xyz", ""),
-                repoId: repoId,
+                claimKind: kind,
+                githubId: githubId,
                 initialSqrtPriceX96: sqrtP,
                 tickLower: lower,
                 tickUpper: upper,

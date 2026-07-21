@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { verifyTypedData } from "viem";
 import { createGithubAuth } from "../src/backend/githubOauth.js";
-import { buildClaimPayload } from "../src/backend/githubClaim.js";
+import { CLAIM_KIND, buildClaimPayload } from "../src/backend/githubClaim.js";
 
 const REGISTRY = "0x00000000000000000000000000000000000000aa";
 const TOKEN = "0x00000000000000000000000000000000000000bb";
@@ -17,7 +17,7 @@ const SIGNER_ADDR = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 const url = (path) => new URL(`http://localhost:8787${path}`);
 
-function ghFetch({ admin = true, repoId = 123456789 } = {}) {
+function ghFetch({ admin = true, repoId = 123456789, userId = 555777 } = {}) {
   const calls = [];
   const impl = async (target, opts) => {
     calls.push({ target, opts });
@@ -29,6 +29,9 @@ function ghFetch({ admin = true, repoId = 123456789 } = {}) {
         ok: true,
         json: async () => ({ id: repoId, full_name: "someone/project", permissions: { admin } }),
       };
+    }
+    if (target === "https://api.github.com/user") {
+      return { ok: true, json: async () => ({ id: userId, login: "somedev" }) };
     }
     throw new Error(`unexpected fetch: ${target}`);
   };
@@ -97,7 +100,7 @@ test("callback rejects non-admins", async () => {
   assert.equal(res.status, 403);
 });
 
-test("happy path returns a signed claim the registry payload verifies", async () => {
+test("repo happy path returns a signed claim the registry payload verifies", async () => {
   const now = Date.now();
   const auth = makeAuth({ now: () => now });
   const state = await startAndGetState(auth);
@@ -105,7 +108,9 @@ test("happy path returns a signed claim the registry payload verifies", async ()
 
   assert.equal(res.status, 200);
   const b = res.body;
-  assert.equal(b.repoId, 123456789n); // numeric GitHub id, never owner/name
+  assert.equal(b.claimKind, CLAIM_KIND.REPO);
+  assert.equal(b.githubId, 123456789n); // numeric GitHub id, never owner/name
+  assert.equal(b.identity, "someone/project");
   assert.equal(b.deadline, BigInt(Math.floor(now / 1000) + 900));
   assert.equal(b.signed, true);
 
@@ -113,11 +118,48 @@ test("happy path returns a signed claim the registry payload verifies", async ()
     registry: REGISTRY,
     chainId: 4663,
     token: TOKEN,
-    repoId: b.repoId,
+    claimKind: b.claimKind,
+    githubId: b.githubId,
     claimant: CLAIMANT,
     deadline: b.deadline,
   });
   assert.ok(await verifyTypedData({ ...payload, address: SIGNER_ADDR, signature: b.signature }));
+});
+
+test("user claims sign over the OAuth'd account's own id, no repo involved", async () => {
+  const now = Date.now();
+  const auth = makeAuth({ now: () => now });
+  const start = await auth.handle(url(`/auth/github/start?kind=user&token=${TOKEN}&claimant=${CLAIMANT}`));
+  const state = new URL(start.redirect).searchParams.get("state");
+  const res = await auth.handle(url(`/auth/github/callback?code=c&state=${state}`));
+
+  assert.equal(res.status, 200);
+  const b = res.body;
+  assert.equal(b.claimKind, CLAIM_KIND.USER);
+  assert.equal(b.githubId, 555777n); // the authenticated user's numeric id
+  assert.equal(b.identity, "somedev");
+  assert.equal(b.signed, true);
+
+  const payload = buildClaimPayload({
+    registry: REGISTRY,
+    chainId: 4663,
+    token: TOKEN,
+    claimKind: b.claimKind,
+    githubId: b.githubId,
+    claimant: CLAIMANT,
+    deadline: b.deadline,
+  });
+  assert.ok(await verifyTypedData({ ...payload, address: SIGNER_ADDR, signature: b.signature }));
+});
+
+test("start validates kind and repo requirement", async () => {
+  const auth = makeAuth();
+  assert.equal((await auth.handle(url(`/auth/github/start?kind=org&token=${TOKEN}&claimant=${CLAIMANT}`))).status, 400);
+  // repo kind without a repo param
+  assert.equal((await auth.handle(url(`/auth/github/start?kind=repo&token=${TOKEN}&claimant=${CLAIMANT}`))).status, 400);
+  // user kind needs no repo param
+  const res = await auth.handle(url(`/auth/github/start?kind=user&token=${TOKEN}&claimant=${CLAIMANT}`));
+  assert.ok(res.redirect);
 });
 
 test("without a signer key the flow still verifies but returns signed:false", async () => {

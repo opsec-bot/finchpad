@@ -1,5 +1,28 @@
 # finchpad TODOS
 
+## Contract revision 2026-07-21 (user + repo claims, pre-claim escrow)
+
+- [x] **ClaimKind {None, Repo, User}** replaces bare repoId across factory/locker/registry.
+      User claims (bags.fm-style) sign over the OAuth'd account's own numeric id — no repo,
+      no scopes, no admin check. EIP-712 struct is now
+      `GithubClaim(address token,uint8 claimKind,uint256 githubId,address claimant,uint256 deadline)`;
+      JS/contract digests re-cross-pinned for BOTH kinds.
+- [x] **Pre-claim escrow** (closes the plan-vs-code gap): GitHub launches give the launcher
+      no fee rights; creator share escrows in the locker until the identity claims (backlog
+      paid on claim). 365-day expiry → `sweepEscrow()` by anyone → protocol recipient
+      (buyback path); post-expiry unclaimed creator share follows it. Admin CTO is blocked
+      while a binding is unclaimed and in-window (fee right belongs to the identity, not
+      the admin), allowed after expiry.
+- [x] **Observability for charts/DexScreener-style indexers**: indexed events
+      `GithubBound(token, kind, githubId)`, `EscrowAccrued`, `GithubClaimSettled(token,
+      claimant, amounts)` (the chart-bubble event), `EscrowSwept`; views `escrowOf()`,
+      `githubBindingOf()`; API token detail now returns a `github{kind, githubId, claimed,
+      escrow…}` object.
+- [x] 97 tests green (64 unit/fuzz Foundry incl. new escrow-conservation property, 5 fork
+      against live Uniswap, 28 JS). Sizes fine (max 8.4KB vs 96KB).
+- [ ] Re-run the full Phase 5 pass (slither/manual) over the revision before audit —
+      escrow is new money-holding surface.
+
 ## Needs the user (blocking next steps)
 
 - [x] **Launch-curve economics: A (degen/fair-launch) CONFIRMED + IMPLEMENTED.** ~1 ETH

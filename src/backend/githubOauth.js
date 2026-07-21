@@ -1,32 +1,40 @@
-// GitHub OAuth web flow for fee claims.
+// GitHub OAuth web flow for fee claims. Two claim kinds, matching the contracts:
 //
-// GET /auth/github/start?token=0x..&claimant=0x..&repo=owner/name
-//   -> 302 to github.com/login/oauth/authorize, with the claim bound to a single-use state
+//   repo: GET /auth/github/start?kind=repo&token=0x..&claimant=0x..&repo=owner/name
+//         -> requires the OAuth'd user to have ADMIN on the repo; signs over the repo's id
+//   user: GET /auth/github/start?kind=user&token=0x..&claimant=0x..
+//         -> no permission check needed; signs over the OAuth'd user's own numeric id
+//
 // GET /auth/github/callback?code=..&state=..
-//   -> exchanges the code server-side, verifies the user has ADMIN on the repo,
-//      resolves GitHub's NUMERIC repo id, and returns the signed EIP-712 claim for
-//      FeeRightsRegistry.claimGithub().
+//   -> exchanges the code server-side, verifies the identity, and returns the signed
+//      EIP-712 claim for FeeRightsRegistry.claimGithub().
 //
 // SECURITY:
 // - `state` is single-use, unguessable (24 random bytes), and expires after 10 minutes.
 //   It carries the claim parameters so the callback cannot be replayed onto a different
 //   token/claimant (classic OAuth CSRF).
 // - The GitHub access token never leaves this module: not logged, not returned, used for
-//   exactly one repo lookup.
-// - The claim binds the numeric repo id (see githubClaim.js) — never owner/name.
+//   exactly one API lookup.
+// - Claims bind numeric GitHub ids (see githubClaim.js) — never repo names or usernames.
 // - This module is kept separate from the read API so production can run it network-
 //   isolated next to the signer key (HSM/KMS), per the plan. Mounting it in the dev API
 //   is a development convenience only.
-// - Default scope is "" — enough to identify the user and read their permissions on
-//   public repos. Set GITHUB_OAUTH_SCOPE=repo only if private-repo claims matter.
+// - Default scope is "" — enough for user claims and public-repo claims. Set
+//   GITHUB_OAUTH_SCOPE=repo only if private-repo claims matter.
 
 import { randomBytes } from "node:crypto";
-import { assertNumericRepoId, claimDigest, signClaim } from "./githubClaim.js";
+import { CLAIM_KIND, assertNumericGithubId, claimDigest, signClaim } from "./githubClaim.js";
 
 const STATE_TTL_MS = 10 * 60_000;
 const CLAIM_VALIDITY_SEC = 15 * 60; // deadline = now + 15min, per the documented flow
 const isAddress = (s) => typeof s === "string" && /^0x[a-fA-F0-9]{40}$/.test(s);
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+const GH_HEADERS = (ghToken) => ({
+  authorization: `Bearer ${ghToken}`,
+  accept: "application/vnd.github+json",
+  "user-agent": "finchpad-claims",
+});
 
 export function createGithubAuth({
   clientId,
@@ -54,16 +62,20 @@ export function createGithubAuth({
     const q = url.searchParams;
 
     if (url.pathname === "/auth/github/start") {
+      const kind = q.get("kind") || "repo";
       const token = q.get("token");
       const claimant = q.get("claimant");
       const repo = q.get("repo");
+      if (kind !== "repo" && kind !== "user") return { status: 400, body: { error: "kind must be repo or user" } };
       if (!isAddress(token)) return { status: 400, body: { error: "token must be a 0x address" } };
       if (!isAddress(claimant)) return { status: 400, body: { error: "claimant must be a 0x address" } };
-      if (!repo || !REPO_RE.test(repo)) return { status: 400, body: { error: "repo must be owner/name" } };
+      if (kind === "repo" && (!repo || !REPO_RE.test(repo))) {
+        return { status: 400, body: { error: "repo claims need repo=owner/name" } };
+      }
 
       prune();
       const state = randomBytes(24).toString("hex");
-      states.set(state, { token, claimant, repo, at: now() });
+      states.set(state, { kind, token, claimant, repo: kind === "repo" ? repo : null, at: now() });
 
       const authorize = new URL("https://github.com/login/oauth/authorize");
       authorize.searchParams.set("client_id", clientId);
@@ -95,25 +107,37 @@ export function createGithubAuth({
         return { status: 502, body: { error: `github token exchange failed: ${tokenJson.error || "no access_token"}` } };
       }
 
-      const repoRes = await fetchImpl(`https://api.github.com/repos/${pending.repo}`, {
-        headers: { authorization: `Bearer ${ghToken}`, accept: "application/vnd.github+json", "user-agent": "finchpad-claims" },
-      });
-      if (!repoRes.ok) {
-        // GitHub 404s private repos the token can't see (rather than 403), so without
-        // "repo" scope a private repo looks nonexistent.
-        const hint = repoRes.status === 404 && !scope.includes("repo")
-          ? " — private repo? claims on private repos need GITHUB_OAUTH_SCOPE=repo"
-          : "";
-        return { status: 502, body: { error: `github repo lookup failed (${repoRes.status})${hint}` } };
-      }
-      const repoInfo = await repoRes.json();
-      if (!repoInfo.permissions?.admin) {
-        return { status: 403, body: { error: "authorized user is not an admin of that repo" } };
+      let claimKind;
+      let githubId;
+      let identity; // human-readable, for display only — never what the claim binds
+      if (pending.kind === "user") {
+        const userRes = await fetchImpl("https://api.github.com/user", { headers: GH_HEADERS(ghToken) });
+        if (!userRes.ok) return { status: 502, body: { error: `github user lookup failed (${userRes.status})` } };
+        const user = await userRes.json();
+        claimKind = CLAIM_KIND.USER;
+        githubId = assertNumericGithubId(user.id);
+        identity = user.login;
+      } else {
+        const repoRes = await fetchImpl(`https://api.github.com/repos/${pending.repo}`, { headers: GH_HEADERS(ghToken) });
+        if (!repoRes.ok) {
+          // GitHub 404s private repos the token can't see (rather than 403), so without
+          // "repo" scope a private repo looks nonexistent.
+          const hint = repoRes.status === 404 && !scope.includes("repo")
+            ? " — private repo? claims on private repos need GITHUB_OAUTH_SCOPE=repo"
+            : "";
+          return { status: 502, body: { error: `github repo lookup failed (${repoRes.status})${hint}` } };
+        }
+        const repoInfo = await repoRes.json();
+        if (!repoInfo.permissions?.admin) {
+          return { status: 403, body: { error: "authorized user is not an admin of that repo" } };
+        }
+        claimKind = CLAIM_KIND.REPO;
+        githubId = assertNumericGithubId(repoInfo.id);
+        identity = repoInfo.full_name;
       }
 
-      const repoId = assertNumericRepoId(repoInfo.id);
       const deadline = BigInt(Math.floor(now() / 1000) + CLAIM_VALIDITY_SEC);
-      const claim = { registry, chainId, token: pending.token, repoId, claimant: pending.claimant, deadline };
+      const claim = { registry, chainId, token: pending.token, claimKind, githubId, claimant: pending.claimant, deadline };
       const digest = registry ? claimDigest(claim) : null;
       const signature = registry && signerKey ? await signClaim(claim, signerKey) : null;
 
@@ -122,8 +146,9 @@ export function createGithubAuth({
         body: {
           token: pending.token,
           claimant: pending.claimant,
-          repoId,
-          repoFullName: repoInfo.full_name,
+          claimKind,
+          githubId,
+          identity,
           deadline,
           digest,
           signature,

@@ -4,21 +4,24 @@ pragma solidity 0.8.30;
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IFinchLockerControl} from "./interfaces/IFinchLockerControl.sol";
+import {IFinchLockerControl, ClaimKind} from "./interfaces/IFinchLockerControl.sol";
 
 /**
  * @title FeeRightsRegistry
  * @notice The one place that decides who may change a token's fee payout. Every path ends
- *         in locker.setControl(); the difference is how the caller proves the right.
+ *         in the locker; the difference is how the caller proves the right.
  *
  *  1. redirectFees / handoff  — the current controller signs a tx (cheap, on-chain).
  *  2. approveCTO              — the admin executes a reviewed community takeover of an
  *                               abandoned token (manual review is off-chain, pons model).
- *  3. claimGithub            — a repo admin proves ownership off-chain; the backend signs
+ *  3. claimGithub            — a GitHub identity proves itself off-chain; the backend signs
  *                               an EIP-712 message that this contract verifies against a
- *                               trusted signer key. Bound to the numeric GitHub repo id.
+ *                               trusted signer key. Bound to a numeric GitHub id: a repo id
+ *                               (claimed by a repo admin) or a user id (claimed by that
+ *                               account, bags.fm-style). Settling a claim also pays out the
+ *                               escrowed pre-claim fees held by the locker.
  *
- * The GitHub signer key is a trusted component. If it leaks, any repo-launched token is
+ * The GitHub signer key is a trusted component. If it leaks, any GitHub-launched token is
  * claimable. It must live in an HSM/KMS or behind a multisig, never a hot wallet.
  */
 contract FeeRightsRegistry is EIP712, Ownable {
@@ -26,19 +29,20 @@ contract FeeRightsRegistry is EIP712, Ownable {
     address public trustedSigner;
 
     bytes32 public constant GITHUB_CLAIM_TYPEHASH =
-        keccak256("GithubClaim(address token,uint256 repoId,address claimant,uint256 deadline)");
+        keccak256("GithubClaim(address token,uint8 claimKind,uint256 githubId,address claimant,uint256 deadline)");
 
     mapping(bytes32 digest => bool used) public usedClaims;
 
     event FeesRedirected(address indexed token, address indexed by, address feeWallet);
     event ControlHandedOff(address indexed token, address indexed from, address to);
     event CTOApproved(address indexed token, address newController);
-    event GithubClaimed(address indexed token, uint256 indexed repoId, address claimant);
+    event GithubClaimed(address indexed token, ClaimKind claimKind, uint256 indexed githubId, address claimant);
     event TrustedSignerUpdated(address indexed signer);
 
     error NotController();
     error GithubDisabled();
-    error RepoMismatch();
+    error BindingMismatch();
+    error AlreadyClaimed();
     error ClaimExpired();
     error ClaimAlreadyUsed();
     error BadSignature();
@@ -83,20 +87,29 @@ contract FeeRightsRegistry is EIP712, Ownable {
     // --- 3. GitHub-verified claim ---
 
     /**
-     * @notice Claim a repo-launched token's fee rights with a backend-signed attestation.
+     * @notice Claim a GitHub-launched token's fee rights with a backend-signed attestation.
+     *         Settling also transfers the locker's escrowed pre-claim fees to the claimant.
      * @param token the launched token
-     * @param repoId the numeric GitHub repo id (bound, never the owner/name string)
+     * @param claimKind Repo or User — must match the binding snapshotted at launch
+     * @param githubId the numeric GitHub id (bound, never a name — names get re-registered)
      * @param deadline signature expiry
      * @param signature EIP-712 signature from the trusted signer over the claim
      */
-    function claimGithub(address token, uint256 repoId, uint256 deadline, bytes calldata signature) external {
-        uint256 boundRepo = locker.repoIdOf(token);
-        if (boundRepo == 0) revert GithubDisabled();
-        if (boundRepo != repoId) revert RepoMismatch();
+    function claimGithub(
+        address token,
+        ClaimKind claimKind,
+        uint256 githubId,
+        uint256 deadline,
+        bytes calldata signature
+    ) external {
+        (ClaimKind boundKind, uint256 boundId, bool claimed) = locker.githubBindingOf(token);
+        if (boundKind == ClaimKind.None) revert GithubDisabled();
+        if (claimed) revert AlreadyClaimed();
+        if (boundKind != claimKind || boundId != githubId) revert BindingMismatch();
         if (block.timestamp > deadline) revert ClaimExpired();
 
         bytes32 structHash =
-            keccak256(abi.encode(GITHUB_CLAIM_TYPEHASH, token, repoId, msg.sender, deadline));
+            keccak256(abi.encode(GITHUB_CLAIM_TYPEHASH, token, claimKind, githubId, msg.sender, deadline));
         bytes32 digest = _hashTypedDataV4(structHash);
         if (usedClaims[digest]) revert ClaimAlreadyUsed();
 
@@ -104,8 +117,8 @@ contract FeeRightsRegistry is EIP712, Ownable {
         if (signer == address(0) || signer != trustedSigner) revert BadSignature();
 
         usedClaims[digest] = true;
-        locker.setControl(token, msg.sender, msg.sender);
-        emit GithubClaimed(token, repoId, msg.sender);
+        locker.settleGithubClaim(token, msg.sender);
+        emit GithubClaimed(token, claimKind, githubId, msg.sender);
     }
 
     /**
@@ -114,12 +127,14 @@ contract FeeRightsRegistry is EIP712, Ownable {
      *      identical digest this contract will check. Mismatch here is the most likely
      *      integration bug in the whole claim flow.
      */
-    function claimDigest(address token, uint256 repoId, address claimant, uint256 deadline)
+    function claimDigest(address token, ClaimKind claimKind, uint256 githubId, address claimant, uint256 deadline)
         external
         view
         returns (bytes32)
     {
-        return _hashTypedDataV4(keccak256(abi.encode(GITHUB_CLAIM_TYPEHASH, token, repoId, claimant, deadline)));
+        return _hashTypedDataV4(
+            keccak256(abi.encode(GITHUB_CLAIM_TYPEHASH, token, claimKind, githubId, claimant, deadline))
+        );
     }
 
     // --- admin ---

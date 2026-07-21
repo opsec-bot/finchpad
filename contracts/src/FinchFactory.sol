@@ -8,6 +8,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {FinchToken} from "./FinchToken.sol";
 import {FinchLocker} from "./FinchLocker.sol";
 import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
+import {ClaimKind} from "./interfaces/IFinchLockerControl.sol";
 
 /**
  * @title FinchFactory
@@ -45,7 +46,8 @@ contract FinchFactory is ReentrancyGuard {
         string logo;
         string description;
         FinchToken.Socials socials;
-        uint256 repoId; // 0 if not a GitHub-repo launch
+        ClaimKind claimKind; // None, or bind the fee right to a GitHub repo/user
+        uint256 githubId; // numeric repo id (Repo) or user id (User); 0 iff None
         uint160 initialSqrtPriceX96; // starting pool price (respecting token ordering)
         int24 tickLower; // single-sided range for the full supply
         int24 tickUpper;
@@ -170,7 +172,7 @@ contract FinchFactory is ReentrancyGuard {
         if (dust > 0) IERC20(token).safeTransfer(msg.sender, dust);
 
         // 5. Register the launch with the locker (fee split snapshot + control = creator).
-        locker.registerLaunch(token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.repoId);
+        locker.registerLaunch(token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId);
 
         // 6. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
         //    msg.value would silently pocket a fat-fingered 1 ETH on a 0.0005 ETH fee.

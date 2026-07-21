@@ -60,9 +60,22 @@ export async function getTokenDetail(token, factoryAddress) {
       const l = await publicClient
         .readContract({ address: lockerAddr, abi: finchLockerAbi, functionName: "launches", args: [token] })
         .catch(() => null);
-      // tuple: positionId, protocolShareBps, tokenIsToken0, controller, feeWallet, repoId, exists
-      if (l && l[6] === true) {
-        launched = { exists: true, deployer: l[3], poolFee: 10000, repoId: l[5], feeWallet: l[4] };
+      // tuple: positionId, protocolShareBps, tokenIsToken0, controller, feeWallet,
+      //        claimKind, githubId, githubClaimed, escrowDeadline, escrowedToken,
+      //        escrowedWeth, exists
+      if (l && l[11] === true) {
+        launched = {
+          exists: true,
+          deployer: l[3],
+          poolFee: 10000,
+          feeWallet: l[4],
+          claimKind: Number(l[5]), // 0 none, 1 repo, 2 user
+          githubId: l[6],
+          githubClaimed: l[7],
+          escrowDeadline: l[8],
+          escrowedToken: l[9],
+          escrowedWeth: l[10],
+        };
       }
     }
   }
@@ -89,7 +102,18 @@ export async function getTokenDetail(token, factoryAddress) {
     deployer: known ? launched.deployer : null,
     poolFee: known ? Number(launched.poolFee) : null,
     feeWallet: known ? (launched.feeWallet ?? null) : null,
-    repoId: known && launched.repoId ? launched.repoId.toString() : null,
+    // GitHub claim surface for the frontend and external indexers: which identity the fee
+    // right is bound to, whether it has been claimed, and what's escrowed for it so far.
+    github: known && launched.claimKind
+      ? {
+          kind: launched.claimKind === 1 ? "repo" : "user",
+          githubId: launched.githubId.toString(),
+          claimed: launched.githubClaimed ?? false,
+          escrowDeadline: launched.escrowDeadline ? Number(launched.escrowDeadline) : null,
+          escrowedToken: launched.escrowedToken?.toString() ?? "0",
+          escrowedWeth: launched.escrowedWeth?.toString() ?? "0",
+        }
+      : null,
     graduation: graduation
       ? {
           pairedPrincipalEth: Number(formatEther(graduation[0])),

@@ -74,7 +74,9 @@ export const finchFactoryAbi = parseAbi([
 ]);
 
 export const finchLockerAbi = parseAbi([
-  "function launches(address token) view returns (uint256 positionId, uint16 protocolShareBps, bool tokenIsToken0, address controller, address feeWallet, uint256 repoId, bool exists)",
+  "function launches(address token) view returns (uint256 positionId, uint16 protocolShareBps, bool tokenIsToken0, address controller, address feeWallet, uint8 claimKind, uint256 githubId, bool githubClaimed, uint64 escrowDeadline, uint256 escrowedToken, uint256 escrowedWeth, bool exists)",
+  "function escrowOf(address token) view returns (uint256 escrowedToken, uint256 escrowedWeth, uint64 escrowDeadline)",
+  "function githubBindingOf(address token) view returns (uint8 kind, uint256 githubId, bool claimed)",
 ]);
 
 export const lockerAbi = parseAbi([
