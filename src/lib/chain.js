@@ -1,0 +1,40 @@
+import { createPublicClient, defineChain, http } from "viem";
+
+// Robinhood Chain — the network pons runs on and where finchpad will deploy.
+//
+// Two RPCs on purpose (measured, not guessed):
+//  - READS (eth_call, getBlock): Alchemy is reliable and fast.
+//  - LOGS (eth_getLogs): Alchemy's FREE tier caps ranges at 10 blocks, which makes scanning
+//    unusable. The public RPC happily serves 500+ block spans. So logs go to the public RPC.
+// Override either with FINCHPAD_RPC_URL / FINCHPAD_LOGS_RPC_URL.
+// Load env with `node --env-file=.env ...` (Node 20+).
+const PUBLIC_RPC = "https://rpc.mainnet.chain.robinhood.com";
+
+const READ_RPC_URL = process.env.ALCHEMY_RH_MAINNET || process.env.FINCHPAD_RPC_URL || PUBLIC_RPC;
+const LOGS_RPC_URL = process.env.FINCHPAD_LOGS_RPC_URL || PUBLIC_RPC;
+
+export const robinhoodChain = defineChain({
+  id: 4663,
+  name: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: [READ_RPC_URL],
+    },
+  },
+  blockExplorers: {
+    default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" },
+  },
+});
+
+/** Contract reads and block lookups (Alchemy when configured). */
+export const publicClient = createPublicClient({
+  chain: robinhoodChain,
+  transport: http(READ_RPC_URL),
+});
+
+/** eth_getLogs only — always a provider that allows wide block ranges. */
+export const logsClient = createPublicClient({
+  chain: robinhoodChain,
+  transport: http(LOGS_RPC_URL),
+});

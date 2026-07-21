@@ -1,0 +1,22 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.30"
+optimizer = true
+optimizer_runs = 300
+via_ir = true
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+# Robinhood Chain. Mainnet RPC is public; testnet RPC via env when available.
+# Local fork tests use the mainnet fork for realistic Uniswap V3 periphery.
+[rpc_endpoints]
+rh_mainnet = "https://rpc.mainnet.chain.robinhood.com"
+rh_testnet = "${FINCHPAD_TESTNET_RPC}"
+
+[etherscan]
+rh_mainnet = { key = "${BLOCKSCOUT_PRO_API_KEY}", url = "https://robinhoodchain.blockscout.com/api/", chain = 4663 }

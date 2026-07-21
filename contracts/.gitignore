@@ -1,0 +1,12 @@
+# Foundry build artifacts (always regenerable)
+cache/
+out/
+
+# Local/dry-run deployment artifacts
+broadcast/*/31337/
+broadcast/**/dry-run/
+
+.env
+
+# NOTE: lib/ is intentionally committed (vendored deps, not submodules) so the exact
+# OpenZeppelin 5.6.1 / forge-std versions are pinned for reproducible audit builds.
