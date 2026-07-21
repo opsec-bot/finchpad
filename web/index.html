@@ -76,6 +76,11 @@ const API = location.origin.startsWith("http") ? location.origin : "http://local
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 4) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+// Escape any chain-derived string before it enters innerHTML. Token name/symbol are set by
+// whoever launched the token (arbitrary calldata), so treating them as trusted HTML is a
+// stored-XSS hole: a token named `<img src=x onerror=…>` would run in every viewer's session.
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function api(path) {
   const r = await fetch(API + path);
@@ -119,13 +124,13 @@ async function select(token) {
     const g = t.graduation;
     $("detail").innerHTML = `
       <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
-        <strong style="font-size:16px">${t.name} <span class="dim">$${t.symbol}</span></strong>
+        <strong style="font-size:16px">${esc(t.name)} <span class="dim">$${esc(t.symbol)}</span></strong>
         <span class="pill">${t.knownToFactory ? "known to factory" : "unknown to this factory"}</span>
       </div>
       <div class="kv mono" style="margin-top:10px">
-        <div>address</div><div>${t.address}</div>
-        <div>pool</div><div>${t.pool}</div>
-        <div>deployer</div><div>${t.deployer ?? "<span class='dim'>n/a</span>"}</div>
+        <div>address</div><div>${esc(t.address)}</div>
+        <div>pool</div><div>${esc(t.pool)}</div>
+        <div>deployer</div><div>${t.deployer ? esc(t.deployer) : "<span class='dim'>n/a</span>"}</div>
         <div>price</div><div>${t.priceWeth.toExponential(4)} Ξ</div>
         <div>mcap</div><div>${fmt(t.marketCapWeth, 2)} Ξ</div>
         <div>supply</div><div>${fmt(t.totalSupply, 0)}</div>
@@ -184,7 +189,7 @@ async function loadTrades(token) {
     if (!d.trades.length) { $("trades").textContent = "no trades in range"; return; }
     $("trades").innerHTML = d.trades.map(t => `<div class="row" style="cursor:default">
         <span class="${t.side}">${t.side}</span>
-        <span class="mono dim">${fmt(t.tokenAmount,0)} ${d.symbol} · ${fmt(t.wethAmount,4)}Ξ</span>
+        <span class="mono dim">${fmt(t.tokenAmount,0)} ${esc(d.symbol)} · ${fmt(t.wethAmount,4)}Ξ</span>
       </div>`).join("");
   } catch (e) {
     $("trades").innerHTML = '<span class="warn">' + e.message + "</span>";
