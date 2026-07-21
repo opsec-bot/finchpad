@@ -2,7 +2,7 @@
 
 A token launchpad on **Robinhood Chain** (chain 4663), modeled on [pons](https://docs.ponsfamily.com/)
 with a fee-rights layer on top: community takeovers (CTO), GitHub-verified fee claims,
-creator fee redirects, and burns.
+creator fee redirects, token locking/vesting, and buyback-burns.
 
 ## Model (inherited from pons)
 
@@ -12,45 +12,107 @@ creator fee redirects, and burns.
 - "Graduation" (default 4.2 ETH paired) is a progress marker only — trading never moves pools.
 - Fee split is snapshotted per token at launch and is immutable afterward.
 
-See [`docs/pons-protocol-reference.md`](docs/pons-protocol-reference.md) for the full scraped spec.
+See [`docs/pons-protocol-reference.md`](docs/pons-protocol-reference.md) for the full scraped
+spec and [`docs/robinhood-chain-reference.md`](docs/robinhood-chain-reference.md) for the chain.
 
 ## The finchpad addition: a fee-rights registry
 
 CTO, GitHub claims, and "send fees to someone" are the **same primitive** — authorizing a
-change to a token's fee-payout wallet (`setFeeRedirect` on the locker) — with different
-verifiers:
+change to a token's fee-payout wallet (`setControl` on the locker) — with different verifiers:
 
-| Feature      | Verifier                                    |
-| ------------ | ------------------------------------------- |
-| redirect     | the current creator signs                   |
-| CTO          | an admin reviews an abandonment request     |
-| GitHub claim | backend verifies repo ownership, signs EIP-712 |
+| Feature      | Verifier                                              |
+| ------------ | ----------------------------------------------------- |
+| redirect     | the current controller signs on-chain                 |
+| CTO          | an admin executes a reviewed abandonment takeover     |
+| GitHub claim | backend verifies repo/user ownership, signs EIP-712   |
 
-Burns follow the pons pattern: route a share of protocol fees through the V3 router into the
-burn address. (Design decisions on trigger/target still open — see conversation notes.)
+GitHub launches bind the fee right to a numeric GitHub identity (a repo id or a user id)
+instead of the launcher. Until that identity claims, the creator share accrues in **escrow**
+in the locker — the launcher gets nothing — which kills the "launch a token on a famous repo
+and farm the fees" grift. A successful claim pays out the whole escrow backlog; if nobody
+claims within the escrow window, the escrow sweeps to the protocol recipient and feeds the
+buyback-burn.
 
-## Status
+## Contracts (`contracts/`, Foundry)
 
-**Indexer read/discovery layer — working and validated against live chain state.**
+- `FinchToken` — fixed-supply (1e9), self-describing on-chain, holder-burnable, EIP-1167
+  clone with pons-style anti-snipe launch protection.
+- `FinchFactory` — one-transaction launch: clone a token, create + initialize its V3 pool,
+  deposit the full supply as single-sided liquidity, hand the locked LP to the locker.
+  Launch-curve economics are passed in per launch (computed off-chain), not hardcoded.
+- `FinchLocker` — holds each launch's locked LP position, collects and splits trading fees
+  per the launch snapshot, and is the source of truth for who controls a token's fee rights
+  (including the GitHub escrow accounting).
+- `FeeRightsRegistry` — the single place that authorizes fee-rights changes: `redirectFees`/
+  `handoff` (controller signs), `approveCTO` (admin), and `claimGithub` (EIP-712 against a
+  trusted signer key).
+- `FinchLock` — Streamflow-style locking + vesting for any ERC-20 (cliff/linear). The
+  anti-rug primitive: a creator locking their own allocation is a verifiable "I can't dump."
 
-- `src/lib/` — chain client, contract addresses + ABIs, chunked `getLogs` helper.
-- `src/indexer/verifyReference.js` — reads the known graduated PONS token end-to-end and
-  asserts pool, supply, WETH pairing, graduation, 90/10 fee split, and live price. **9/9 pass.**
-- `src/indexer/backfill.js` — backfills `TokenLaunched` from a factory in bounded block chunks
-  (the public RPC times out on wide ranges).
+Tests cover unit, fuzz (`Fuzz.t.sol`), a claim-digest cross-check, and mainnet-fork launch/
+smoke tests (`ForkLaunch.t.sol`, `ForkSmoke.t.sol`).
+
+```bash
+cd contracts
+forge build
+forge test                     # unit + fuzz
+forge test --match-path 'test/Fork*.t.sol'   # needs a mainnet fork RPC
+```
+
+> The GitHub signer key is a trusted component: if it leaks, any GitHub-launched token is
+> claimable. It must live in an HSM/KMS or behind a multisig — never a hot wallet.
+
+## Backend + indexer (`src/`)
+
+- `src/lib/` — chain client, contract addresses + ABIs (pons reference **and** finchpad's
+  own), chunked `getLogs`, OHLC aggregation, and read helpers shared by the CLIs and API.
+- `src/backend/api.js` — read-only HTTP API serving the frontend (launches, token detail,
+  price, candles, trades). Reads live off-chain with a TTL cache, so it runs today with no
+  database; a Postgres indexer (`schema.sql`) can back it later without changing response
+  shapes. Zero HTTP dependencies on purpose — it sits next to a signing key.
+- `src/backend/githubOauth.js` + `githubClaim.js` — GitHub OAuth flow and EIP-712 claim
+  signing. The digest is cross-pinned against the contract in the test suite.
+- `src/indexer/` — `backfill.js` (launch events in bounded chunks), `swaps.js` (trades +
+  OHLCV candles), `holders.js` (exact balances + concentration via Multicall3), and
+  `verifyReference.js` (reads a known graduated pons token end-to-end and asserts pool,
+  supply, WETH pairing, graduation, fee split, and live price).
 
 ```bash
 npm install
-npm run verify:reference                     # validate read paths against live state
-node src/indexer/backfill.js active --from <n> --to <n> --chunk 1000
+npm run verify:reference        # validate read paths against live chain state
+npm run api                     # read API + frontend on :8787
+npm test                        # node --test
+node src/indexer/swaps.js <token> --from <n> --to <n> --interval 300
 ```
 
-The indexer currently points at the pons factories as its validation target; finchpad's own
-factory/locker addresses drop into `src/lib/contracts.js` once the contracts ship.
+The API and indexer default to the live pons factory so they return real data before
+finchpad deploys; finchpad's own factory/locker addresses drop into `src/lib/contracts.js`
+once the contracts ship.
 
-## Not yet built
+## Frontend (`web/`)
 
-- `contracts/` — finchpad factory + locker + `FeeRightsRegistry` (Foundry, target testnet 46630 first).
-- Swap indexing per registered pool + OHLC aggregation.
-- GitHub OAuth backend + EIP-712 signer (the signer key is a trusted component — HSM/multisig).
-- Frontend.
+`web/index.html` — a single-page, no-build token explorer (launch list, token detail,
+candles, trades, holder concentration), served from the same origin as the API.
+
+## Local development
+
+Robinhood's testnet (46630) has no Uniswap V3 deployed, so the launch flow can't run there.
+The dev scripts fork mainnet instead, giving the real Uniswap periphery with fake money:
+
+```bash
+npm run dev:fork                # boot anvil forking RH mainnet (leave running)
+npm run dev:seed                # deploy finchpad on the fork + seed launches/trades
+```
+
+Seeding impersonates a clean address via anvil — no private key lives in this repo.
+
+## Security
+
+Internal reviews live in [`docs/security-audit.md`](docs/security-audit.md) and
+[`docs/security-adoption-report.md`](docs/security-adoption-report.md). Contracts are
+pre-mainnet and unaudited by a third party; treat the signer key and admin roles as
+trusted components accordingly.
+
+## License
+
+MIT
