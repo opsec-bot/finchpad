@@ -11,11 +11,20 @@ import {FinchLock} from "../src/FinchLock.sol";
 /**
  * @notice Deploys the finchpad contract suite and wires it up.
  *
- * Run (testnet first):
+ * PREFERRED — sign with a Ledger, so no private key ever exists in plaintext:
+ *   export FINCH_DEPLOYER=0xYourLedgerAddress
+ *   forge script script/Deploy.s.sol --rpc-url rh_mainnet \
+ *     --ledger --sender $FINCH_DEPLOYER --broadcast
+ *
+ *   The Ledger only needs the Ethereum app. Chain id is just a transaction field (EIP-155),
+ *   so there is no "Robinhood app" to install. Enable Blind signing in the Ethereum app
+ *   settings — contract deployments cannot be decoded into human-readable text on-device.
+ *
+ * Alternative (testing only — puts a raw key in your environment):
  *   forge script script/Deploy.s.sol --rpc-url rh_testnet --broadcast --private-key $PRIVATE_KEY
  *
  * Required env:
- *   PRIVATE_KEY               deployer key (never committed; passed at runtime)
+ *   FINCH_DEPLOYER            deployer address (Ledger path). Or PRIVATE_KEY for the raw-key path.
  *   FINCH_POSITION_MANAGER    Uniswap V3 NonfungiblePositionManager for the target chain
  *   FINCH_WETH                WETH (quote token) for the target chain
  * Optional env (default in parens):
@@ -31,8 +40,10 @@ import {FinchLock} from "../src/FinchLock.sol";
  */
 contract Deploy is Script {
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(pk);
+        // Ledger path (preferred): PRIVATE_KEY unset, deployer comes from FINCH_DEPLOYER and
+        // forge signs via --ledger. Raw-key path is kept only for local/testnet convenience.
+        uint256 pk = vm.envOr("PRIVATE_KEY", uint256(0));
+        address deployer = pk != 0 ? vm.addr(pk) : vm.envAddress("FINCH_DEPLOYER");
 
         address positionManager = vm.envAddress("FINCH_POSITION_MANAGER");
         address weth = vm.envAddress("FINCH_WETH");
@@ -42,7 +53,8 @@ contract Deploy is Script {
         address githubSigner = vm.envOr("FINCH_GITHUB_SIGNER", address(0));
         uint16 protocolBps = uint16(vm.envOr("FINCH_PROTOCOL_BPS", uint256(2000)));
 
-        vm.startBroadcast(pk);
+        if (pk != 0) vm.startBroadcast(pk);
+        else vm.startBroadcast(deployer); // forge routes signing to the Ledger for this address
 
         FinchToken impl = new FinchToken();
         FinchFactory factory =
