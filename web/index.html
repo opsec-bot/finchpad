@@ -142,12 +142,41 @@ async function select(token) {
           ${g.graduated ? '<span class="pill" style="color:var(--up)">graduated</span>' : ""}</div>
         <div class="bar" style="margin-top:5px"><i style="width:${Math.min(100, g.progress*100)}%"></i></div>
       </div>` : ""}
+      ${t.github ? `<div style="margin-top:12px">
+        <div class="dim">github ${esc(t.github.kind)} <span class="mono">#${esc(t.github.githubId)}</span>
+          ${t.github.claimed
+            ? '<span class="pill" style="color:var(--up)">fees claimed</span>'
+            : `<span class="pill">unclaimed</span>
+               <span class="mono">escrow ${fmt(Number(t.github.escrowedWeth) / 1e18, 4)}Ξ +
+               ${fmt(Number(t.github.escrowedToken) / 1e18, 0)} ${esc(t.symbol)}</span>
+               ${t.github.escrowDeadline ? `· claim by ${esc(new Date(t.github.escrowDeadline * 1000).toISOString().slice(0, 10))}` : ""}`}
+        </div>
+        ${!t.github.claimed ? '<button id="claimBtn" style="margin-top:6px">claim fees via GitHub</button>' : ""}
+      </div>` : ""}
     `;
+    if (t.github && !t.github.claimed) {
+      $("claimBtn").addEventListener("click", () => startGithubClaim(t));
+    }
     loadChart(token, t.symbol);
     loadTrades(token);
   } catch (e) {
     $("detail").innerHTML = '<span class="warn">' + esc(e.message) + "</span>";
   }
+}
+
+// Kick off the OAuth claim flow for a github-bound token. Until wallet connect lands
+// (Phase 3 proper), the payout wallet is typed in; the OAuth window returns the signed
+// EIP-712 claim to submit to FeeRightsRegistry.claimGithub().
+function startGithubClaim(t) {
+  const claimant = (window.prompt("Wallet address that will receive the fee rights (0x…):") || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(claimant)) { alert("Invalid address."); return; }
+  const params = new URLSearchParams({ kind: t.github.kind, token: t.address, claimant });
+  if (t.github.kind === "repo") {
+    const repo = (window.prompt("Repo to prove admin on (owner/name):") || "").trim();
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) { alert("Expected owner/name."); return; }
+    params.set("repo", repo);
+  }
+  window.open(`${API}/auth/github/start?${params}`, "_blank", "noopener");
 }
 
 async function loadChart(token, symbol) {

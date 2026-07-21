@@ -248,8 +248,11 @@ contract FinchLockerTest is Test {
         address community = makeAddr("community");
         vm.prank(registry);
         locker.setControl(address(gh), community, community);
-        // post-expiry CTO wallet now receives the creator share
+        // post-expiry CTO wallet now receives the creator share — and FeesCollected must
+        // report the real creator payout, not zero (indexers bill off this event)
         _queueFees(gh, 100e18, 0);
+        vm.expectEmit(true, false, false, true);
+        emit FinchLocker.FeesCollected(address(gh), 80e18, 0, 20e18, 0);
         locker.collect(address(gh));
         assertEq(gh.balanceOf(community), 80e18);
     }

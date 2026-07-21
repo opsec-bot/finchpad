@@ -277,29 +277,26 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         uint256 tokenToProtocol = tokenAmt - tokenToCreator;
         uint256 wethToProtocol = wethAmt - wethToCreator;
 
-        if (l.claimKind != ClaimKind.None && !l.githubClaimed) {
-            if (block.timestamp <= l.escrowDeadline) {
-                // Identity hasn't claimed yet: hold its share here until it does.
-                l.escrowedToken += tokenToCreator;
-                l.escrowedWeth += wethToCreator;
+        if (l.claimKind != ClaimKind.None && !l.githubClaimed && block.timestamp <= l.escrowDeadline) {
+            // Identity hasn't claimed yet: hold its share here until it does.
+            l.escrowedToken += tokenToCreator;
+            l.escrowedWeth += wethToCreator;
+            if (tokenToCreator > 0 || wethToCreator > 0) {
                 emit EscrowAccrued(token, tokenToCreator, wethToCreator, l.escrowedToken, l.escrowedWeth);
-            } else {
-                // Window expired unclaimed: creator share follows the swept escrow to the
-                // protocol recipient (buyback path) — unless a post-expiry CTO installed a
-                // fee wallet, which then takes over the creator share.
-                if (l.feeWallet == address(0)) {
-                    tokenToProtocol += tokenToCreator;
-                    wethToProtocol += wethToCreator;
-                } else {
-                    if (tokenToCreator > 0) IERC20(token).safeTransfer(l.feeWallet, tokenToCreator);
-                    if (wethToCreator > 0) IERC20(weth).safeTransfer(l.feeWallet, wethToCreator);
-                }
             }
-            // Creator share was escrowed or rerouted, not paid to a creator wallet.
             emit FeesCollected(token, 0, 0, tokenToProtocol, wethToProtocol);
         } else {
-            if (tokenToCreator > 0) IERC20(token).safeTransfer(l.feeWallet, tokenToCreator);
-            if (wethToCreator > 0) IERC20(weth).safeTransfer(l.feeWallet, wethToCreator);
+            if (l.claimKind != ClaimKind.None && !l.githubClaimed && l.feeWallet == address(0)) {
+                // Window expired unclaimed and no post-expiry CTO: creator share follows
+                // the swept escrow to the protocol recipient (buyback path).
+                tokenToProtocol += tokenToCreator;
+                wethToProtocol += wethToCreator;
+                tokenToCreator = 0;
+                wethToCreator = 0;
+            } else {
+                if (tokenToCreator > 0) IERC20(token).safeTransfer(l.feeWallet, tokenToCreator);
+                if (wethToCreator > 0) IERC20(weth).safeTransfer(l.feeWallet, wethToCreator);
+            }
             emit FeesCollected(token, tokenToCreator, wethToCreator, tokenToProtocol, wethToProtocol);
         }
 

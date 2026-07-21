@@ -21,7 +21,20 @@
 - [x] 97 tests green (64 unit/fuzz Foundry incl. new escrow-conservation property, 5 fork
       against live Uniswap, 28 JS). Sizes fine (max 8.4KB vs 96KB).
 - [ ] Re-run the full Phase 5 pass (slither/manual) over the revision before audit —
-      escrow is new money-holding surface.
+      escrow is new money-holding surface. Self-review pass done 2026-07-21: found + fixed
+      FeesCollected under-reporting the creator payout in the post-expiry-CTO branch
+      (event-accuracy bug, indexers bill off that event); EscrowAccrued no longer emits
+      zero-amount noise. CI Slither (fail-on: medium) green over the revision.
+
+## Phase 3 website — started 2026-07-21
+
+- [x] Token page GitHub surface: binding (kind + id), claimed pill, live escrow balance
+      ("unclaimed creator fees"), claim-by deadline, and a claim button that launches the
+      OAuth flow (typed-in payout wallet until wallet-connect lands).
+- [x] PR #1 security fixes ported to master (XSS escapes incl. error messages, API param
+      clamps); PR closed. Dependabot #2/#4/#5 merged, #3 applied manually (conflict).
+- [ ] Wallet connect + submit claimGithub() tx from the returned signature.
+- [ ] Launch / trade / lock / burn / CTO flows. No blind-signing.
 
 ## Needs the user (blocking next steps)
 
