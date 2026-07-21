@@ -150,6 +150,65 @@ contract ForkLaunchTest is Test {
         assertEq(before - creator.balance, 0.0005 ether, "creator only out the fee, rest refunded");
     }
 
+    /// The money path, end to end, against REAL Uniswap: launch -> trade both directions to
+    /// accrue real 1% pool fees -> collect -> verify the 80/20 split lands in the right
+    /// assets. Every other collect() test uses a mock that returns what I already assumed,
+    /// so this is the only thing that proves the token0/token1 mapping is actually right.
+    function test_fork_collectRealFeesAndSplit() public {
+        (address token,,,) = _launchCurveA();
+        vm.roll(block.number + 10); // past the anti-snipe window
+
+        // Buy: fee accrues in WETH (the input asset).
+        uint256 amountIn = 0.5 ether;
+        deal(WETH, buyer, amountIn);
+        vm.startPrank(buyer);
+        IERC20(WETH).approve(SWAP_ROUTER, amountIn);
+        uint256 bought = ISwapRouter02(SWAP_ROUTER).exactInputSingle(
+            ISwapRouter02.ExactInputSingleParams({
+                tokenIn: WETH, tokenOut: token, fee: 10000, recipient: buyer,
+                amountIn: amountIn, amountOutMinimum: 0, sqrtPriceLimitX96: 0
+            })
+        );
+
+        // Sell half back: fee accrues in the TOKEN. Now both assets have fees, which is what
+        // makes the ordering mapping observable.
+        IERC20(token).approve(SWAP_ROUTER, bought / 2);
+        ISwapRouter02(SWAP_ROUTER).exactInputSingle(
+            ISwapRouter02.ExactInputSingleParams({
+                tokenIn: token, tokenOut: WETH, fee: 10000, recipient: buyer,
+                amountIn: bought / 2, amountOutMinimum: 0, sqrtPriceLimitX96: 0
+            })
+        );
+        vm.stopPrank();
+
+        uint256 creatorTokenBefore = IERC20(token).balanceOf(creator);
+        uint256 creatorWethBefore = IERC20(WETH).balanceOf(creator);
+
+        locker.collect(token);
+
+        uint256 creatorToken = IERC20(token).balanceOf(creator) - creatorTokenBefore;
+        uint256 creatorWeth = IERC20(WETH).balanceOf(creator) - creatorWethBefore;
+        uint256 protoToken = IERC20(token).balanceOf(protocol);
+        uint256 protoWeth = IERC20(WETH).balanceOf(protocol);
+
+        // Real fees actually accrued and were paid out in BOTH assets.
+        assertGt(creatorWeth, 0, "creator earned WETH fees");
+        assertGt(creatorToken, 0, "creator earned token fees");
+        assertGt(protoWeth, 0, "protocol earned WETH fees");
+        assertGt(protoToken, 0, "protocol earned token fees");
+
+        // 80/20 split holds on real amounts (integer division favors the creator by <=1 wei).
+        assertApproxEqAbs(protoWeth * 4, creatorWeth, 4, "WETH split is 80/20");
+        assertApproxEqAbs(protoToken * 4, creatorToken, 4, "token split is 80/20");
+
+        // Nothing stranded in the locker.
+        assertEq(IERC20(token).balanceOf(address(locker)), 0, "no token left in locker");
+        assertEq(IERC20(WETH).balanceOf(address(locker)), 0, "no WETH left in locker");
+
+        emit log_named_uint("creator WETH fees", creatorWeth);
+        emit log_named_uint("protocol WETH fees", protoWeth);
+    }
+
     function test_fork_buyMovesGraduationProgress() public {
         (address token,,,) = _launchCurveA();
 
