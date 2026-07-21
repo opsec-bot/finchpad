@@ -249,6 +249,12 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     // --- fee collection ---
 
     /// @notice Collect this token's LP trading fees and split them per the launch snapshot.
+    /// @dev Escrow accounting necessarily writes AFTER positionManager.collect() — the
+    ///      amounts don't exist until it returns, so CEI cannot apply. Safe because every
+    ///      state-writing entrypoint here shares the nonReentrant guard, setControl is
+    ///      registry-only, and the callee is the canonical Uniswap position manager (no
+    ///      callback path; FinchToken/WETH have no transfer hooks).
+    // slither-disable-next-line reentrancy-no-eth
     function collect(address token) external nonReentrant {
         Launch storage l = launches[token];
         if (!l.exists) revert UnknownToken();
