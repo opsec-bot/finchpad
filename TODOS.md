@@ -29,7 +29,13 @@
       at 10 blocks; the public RPC serves 500+ block spans. So `publicClient` (Alchemy) does
       contract reads/blocks and `logsClient` (public RPC) does log scanning. See
       `src/lib/chain.js`. Override via FINCHPAD_RPC_URL / FINCHPAD_LOGS_RPC_URL.
-- [ ] Holder balances (Alchemy Transfers API — supported, no 10-block cap).
+- [x] **Holder balances + concentration** (`src/indexer/holders.js`). Two-step for exactness:
+      discover candidates from Transfer logs, then read balances via Multicall3 (verified
+      deployed on 4663 at the canonical address). Reports burn amounts and top-N concentration
+      as a rug-risk signal. **Self-validating**: computes supply coverage and refuses to
+      present concentration as reliable when discovery is partial (`complete: false` flag for
+      the frontend to gate on) — a wrong rug-risk number is worse than none. Complete data
+      requires scanning from the token's TokenLaunched block.
 - [ ] Backend REST API + Postgres schema.
 - [ ] GitHub OAuth + EIP-712 signer service (isolated; key in HSM/KMS).
 - [x] **Alchemy: both RH networks enabled** (mainnet + testnet). Key in `.env` (gitignored).

@@ -25,6 +25,10 @@ export const robinhoodChain = defineChain({
   blockExplorers: {
     default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" },
   },
+  // Canonical Multicall3, verified deployed on chain 4663. Lets us batch balanceOf reads.
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
 });
 
 /** Contract reads and block lookups (Alchemy when configured). */

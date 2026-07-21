@@ -36,6 +36,8 @@ export const TOKEN_LAUNCHED = parseAbiItem(
   "event TokenLaunched(address indexed token, address indexed deployer, address indexed dexFactory, address pairToken, address pool, uint256 dexId, uint256 launchConfigId, uint256 positionId, uint256 restrictionsEndBlock, uint256 initialBuyAmount)"
 );
 
+export const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+
 export const SWAP = parseAbiItem(
   "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)"
 );
