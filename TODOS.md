@@ -36,8 +36,17 @@
       present concentration as reliable when discovery is partial (`complete: false` flag for
       the frontend to gate on) — a wrong rug-risk number is worse than none. Complete data
       requires scanning from the token's TokenLaunched block.
+- [x] **GitHub claim signer** (`src/backend/githubClaim.js`). Produces the EIP-712 attestation
+      `FeeRightsRegistry.claimGithub()` verifies. **Cross-pinned**: the contract exposes
+      `claimDigest()`, a Foundry test computes it for fixed fixtures, and a JS test asserts
+      the signer produces the identical digest — so a domain/type drift between backend and
+      contract fails a test instead of silently breaking claims in production. Also guards
+      that repoId is GitHub's numeric id, never owner/name.
+- [ ] **GitHub OAuth — BLOCKED ON USER.** Needs a GitHub OAuth app (client id + secret) that
+      only the project owner can create. Flow is documented in `src/backend/githubClaim.js`:
+      authorize → GET /repos/{owner}/{name} → require `permissions.admin` → sign with the
+      numeric `id`. Everything downstream of OAuth is built and tested.
 - [ ] Backend REST API + Postgres schema.
-- [ ] GitHub OAuth + EIP-712 signer service (isolated; key in HSM/KMS).
 - [x] **Alchemy: both RH networks enabled** (mainnet + testnet). Key in `.env` (gitignored).
       Indexer reads wired to Alchemy (`src/lib/chain.js`), 9/9 reference checks pass through it.
       Note: free-tier getLogs capped at 10 blocks → use Transfers API / Blockscout PRO for
