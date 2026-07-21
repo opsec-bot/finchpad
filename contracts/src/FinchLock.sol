@@ -59,6 +59,7 @@ contract FinchLock is ReentrancyGuard {
         uint256 before = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = IERC20(token).balanceOf(address(this)) - before;
+        // slither-disable-next-line incorrect-equality
         if (received == 0) revert ZeroAmount();
 
         id = nextId++;
@@ -91,6 +92,7 @@ contract FinchLock is ReentrancyGuard {
     function release(uint256 id) external nonReentrant {
         Lock storage l = locks[id];
         uint256 amount = vestedAmount(id, uint64(block.timestamp)) - l.released;
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToRelease();
         l.released += amount; // effects before interaction
         IERC20(l.token).safeTransfer(l.beneficiary, amount);

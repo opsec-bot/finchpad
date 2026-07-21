@@ -159,6 +159,7 @@ contract FinchFactory is ReentrancyGuard {
 
         // A mint that produces no liquidity would leave a "successful" launch with an empty
         // pool — nothing to trade against. Bad tick params must fail loudly, not silently.
+        // slither-disable-next-line incorrect-equality
         if (liquidity == 0) revert NoLiquidityMinted();
 
         // Single-sided mints leave microscopic dust (liquidity rounding). Sweep it to the

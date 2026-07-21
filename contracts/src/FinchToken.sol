@@ -118,6 +118,7 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
         bool isBuy = from == liquidityPool;
 
         if (active && isBuy && to != factory) {
+            // slither-disable-next-line incorrect-equality
             if (block.number == launchBlock) {
                 // Launch block: only the creator's initial buy can execute.
                 if (to != creator) revert LaunchBlockCreatorOnly();
