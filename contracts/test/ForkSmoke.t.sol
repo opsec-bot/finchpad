@@ -13,7 +13,8 @@ contract ForkSmokeTest is Test {
     address constant REF_POOL = 0x10CC6BD38112cAc182db90B6a71d8Bb5939526bA;
 
     function test_fork_readsRealPool() public {
-        vm.createSelectFork("rh_mainnet");
+        // FORK_RPC_URL (CI secret) overrides the public rh_mainnet alias when set.
+        vm.createSelectFork(vm.envOr("FORK_RPC_URL", string("rh_mainnet")));
 
         address pool = IUniswapV3Factory(V3_FACTORY).getPool(REF_TOKEN, WETH, 10000);
         assertEq(pool, REF_POOL, "v3 factory should return the known reference pool");

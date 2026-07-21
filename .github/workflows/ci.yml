@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: JS tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  contracts:
+    name: Foundry tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: forge build --sizes
+      - run: forge test --no-match-path "test/Fork*.t.sol"
+
+  # Fork tests hit live Robinhood Chain mainnet. They use the ALCHEMY_RH_MAINNET
+  # repo secret when present, else fall back to the public RPC in foundry.toml.
+  fork-tests:
+    name: Fork tests (live RPC)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    env:
+      FORK_RPC_URL: ${{ secrets.ALCHEMY_RH_MAINNET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - name: forge test (fork suite)
+        run: |
+          if [ -z "${FORK_RPC_URL}" ]; then unset FORK_RPC_URL; fi
+          forge test --match-path "test/Fork*.t.sol"
+
+  slither:
+    name: Slither
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crytic/slither-action@v0.4.1
+        with:
+          target: contracts/
+          slither-config: contracts/slither.config.json
+          fail-on: medium

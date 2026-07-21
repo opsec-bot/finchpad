@@ -106,19 +106,21 @@
 Worth doing because it's free infrastructure we're currently not using at all.
 
 **Highest value first:**
-- [ ] **CI on every push** (`.github/workflows/ci.yml`) — `forge test` + `npm test` + `forge build --sizes`.
-      Free tier gives 2,000 Actions min/month on private repos. Catches regressions and builds
-      an audit trail an external auditor can actually look at. Use `foundry-rs/foundry-toolchain`.
-      Note: fork tests need an RPC secret (`ALCHEMY_RH_MAINNET`) in repo secrets, or gate them
-      behind a `--match-path` so CI can run the non-fork suite without credentials.
-- [ ] **Slither in CI** (`crytic/slither-action`) — fail the build on new High/Medium findings.
-      We're at zero High; CI keeps it that way instead of relying on me remembering to re-run it.
-- [ ] **Secret scanning + push protection** — free on all repos now. Would physically block a
-      committed key. Given how many keys have moved through this project (Blockscout, Alchemy,
-      the Telegram bot token), this one is not theoretical.
-- [ ] **Dependabot** — free vuln alerts + auto-PRs for npm deps. `npm audit` is clean today;
-      this keeps it that way without anyone checking.
-- [ ] **Branch protection on master** — require CI green before merge.
+- [x] **CI on every push** (`.github/workflows/ci.yml`) — 4 jobs: JS tests, Foundry tests
+      (non-fork), fork tests against live RPC, Slither. Fork tests use the `ALCHEMY_RH_MAINNET`
+      repo secret via `FORK_RPC_URL` when set, else fall back to the public RPC (works today
+      with zero secrets — verified locally, 5/5 fork tests pass through the fallback).
+- [x] **Slither in CI** (`crytic/slither-action`, `fail-on: medium`) — safe to enforce now:
+      the Phase 5 audit left zero High/Medium findings (17 remaining are all Low/Info/accepted).
+      Config at `contracts/slither.config.json` filters lib/test/script.
+- [ ] **Secret scanning + push protection — BLOCKED: paid on private repos.** API returns
+      "Secret scanning is not available for this repository" (it's GitHub Secret Protection,
+      paid for private repos; free only if the repo goes public). Ties into the visibility
+      decision below. Meanwhile: keys stay in gitignored `.env` only.
+- [x] **Dependabot** — vuln alerts + automated security fixes enabled via API;
+      `.github/dependabot.yml` adds weekly npm + github-actions version PRs.
+- [ ] **Branch protection on master — BLOCKED: needs GitHub Pro or a public repo** (403
+      "Upgrade to GitHub Pro or make this repository public"). Also a visibility-decision item.
 
 **Free only if the repo goes PUBLIC** (ties back to the visibility decision):
 - [ ] **CodeQL** — free for public repos; private needs paid GitHub Advanced Security.

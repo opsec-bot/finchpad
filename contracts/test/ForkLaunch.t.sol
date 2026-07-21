@@ -40,7 +40,8 @@ contract ForkLaunchTest is Test {
     address buyer = makeAddr("buyer");
 
     function setUp() public {
-        vm.createSelectFork("rh_mainnet");
+        // FORK_RPC_URL (CI secret) overrides the public rh_mainnet alias when set.
+        vm.createSelectFork(vm.envOr("FORK_RPC_URL", string("rh_mainnet")));
 
         impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin);
