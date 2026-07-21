@@ -119,6 +119,11 @@ Worth doing because it's free infrastructure we're currently not using at all.
       decision below. Meanwhile: keys stay in gitignored `.env` only.
 - [x] **Dependabot** — vuln alerts + automated security fixes enabled via API;
       `.github/dependabot.yml` adds weekly npm + github-actions version PRs.
+      Noise caveat: most alerts (48 on day one) come from the vendored
+      `contracts/lib/openzeppelin-contracts` devDependency lockfile — dev tooling of a
+      pinned library, not our attack surface. Closed its two auto-PRs; dismiss those
+      alerts in bulk on the security tab if the count bothers you. Our own deps: viem
+      only, clean.
 - [ ] **Branch protection on master — BLOCKED: needs GitHub Pro or a public repo** (403
       "Upgrade to GitHub Pro or make this repository public"). Also a visibility-decision item.
 
