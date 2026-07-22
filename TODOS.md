@@ -1,5 +1,38 @@
 # finchpad TODOS
 
+## PR #8 review (monetization: referral / graduation rewards / featured) — 2026-07-22
+
+Reviewed locally with a real Foundry+Slither toolchain (cloud CI couldn't run them).
+CI now green on all 4 jobs. Fixed on the branch: SeedLocal stack-too-deep at
+`forge build --sizes` (run() held 6 contracts + 4 tokens live through the console.log
+block; now state vars), and 2 Slither Medium false positives (uninitialized-local on
+the referrer amounts, unused-return in markGraduated).
+
+- [ ] **SECURITY, decide before merge: graduation is latchable without volume.**
+      `graduationBonusBps` makes graduation worth money (5pp protocol->creator, permanent),
+      but `markGraduated()` is permissionless + one-way and reads
+      `IERC20(weth).balanceOf(pool)` — a spot balance, not traded volume. PoC passed on a
+      mainnet fork: a plain `WETH.transfer(pool, 4.2 ether)` donation (no trades at all)
+      makes `graduationStatus()` report graduated and latches it forever. The practical
+      version is an atomic buy -> markGraduated -> sell in one tx: ~1% fee each way, and as
+      the creator ~80% of that comes back via the locker, so roughly **0.02 ETH to
+      permanently move 5pp of all future fees**. Options: (1) admin/keeper-only
+      markGraduated, (2) require the threshold to hold across two observations N blocks
+      apart, (3) track cumulative WETH-in from Swap events in the factory. See PR #8 comment.
+- [ ] **Rename `FeatureBoost.verify()` / "verified".** Anyone can buy the badge for any
+      token including their own scam. Honest paid promotion, but "verified" reads as
+      "vetted" on a pad positioned against scam-spam. Not rendered in the UI yet, so
+      renaming (promoted / sponsored) is free right now.
+
+## Stale branches cleaned 2026-07-22
+
+- Deleted `claude/readme-update-vt2fpj` (fully merged into master) and
+  `claude/security-audit-adoption-twk0ef` (PR #1 closed; content ported to master in
+  04e1a1d, verified present before deleting).
+- `ALCHEMY_RH_MAINNET` set as a repo secret: the public RH RPC now serves Cloudflare bot
+  challenges to GitHub runners (13x HTTP 403, reproduced twice), so fork tests in CI need
+  it. Fork job green with it set.
+
 ## Contract revision 2026-07-21 (user + repo claims, pre-claim escrow)
 
 - [x] **ClaimKind {None, Repo, User}** replaces bare repoId across factory/locker/registry.
