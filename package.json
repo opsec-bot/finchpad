@@ -16,7 +16,8 @@
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "web:typecheck": "npm --prefix web run typecheck",
-    "api:only": "node --env-file=.env src/backend/api.js"
+    "api:only": "node --env-file=.env src/backend/api.js",
+    "dev:fund": "node scripts/dev-fund.mjs"
   },
   "keywords": [
     "launchpad",
