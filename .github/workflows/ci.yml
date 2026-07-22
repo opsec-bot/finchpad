@@ -22,6 +22,25 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  web:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # This bundle prompts wallet signing. Known-vulnerable deps do not ship in it.
+      - run: npm audit --audit-level=high
+
   contracts:
     name: Foundry tests
     runs-on: ubuntu-latest

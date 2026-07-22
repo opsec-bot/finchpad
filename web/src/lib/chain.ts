@@ -1,0 +1,47 @@
+import { defineChain } from "viem";
+
+/**
+ * Robinhood Chain mainnet. Not in viem/chains, so it is defined here and handed to
+ * PrivyProvider via defaultChain/supportedChains.
+ *
+ * Note this is an Arbitrum Orbit/Nitro chain: `block.number` is an L1 estimate that advances
+ * roughly every 12s rather than per L2 block. That only matters for reading the token's
+ * anti-snipe window (see docs/robinhood-chain-reference.md).
+ */
+export const robinhoodChain = defineChain({
+  id: 4663,
+  name: "Robinhood Chain",
+  network: "robinhood",
+  nativeCurrency: { decimals: 18, name: "Ether", symbol: "ETH" },
+  rpcUrls: {
+    default: { http: [import.meta.env.VITE_RPC_URL ?? "https://rpc.mainnet.chain.robinhood.com"] },
+  },
+  blockExplorers: {
+    default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" },
+  },
+});
+
+/** Local anvil fork of mainnet — what `npm run dev:fork` + `npm run dev:seed` stand up. */
+export const localFork = defineChain({
+  ...robinhoodChain,
+  id: 4663,
+  name: "Robinhood Chain (local fork)",
+  rpcUrls: { default: { http: ["http://localhost:8545"] } },
+});
+
+/** Mainnet Uniswap V3 periphery + the finchpad deployment, all overridable per environment. */
+export const addresses = {
+  weth: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+  positionManager: "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
+  swapRouter: "0xCaf681a66D020601342297493863E78C959E5cb2",
+  v3Factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+  // Unset until finchpad deploys. The UI gates write actions on these being present rather
+  // than sending transactions into the void.
+  factory: (import.meta.env.VITE_FINCH_FACTORY ?? "") as `0x${string}` | "",
+  locker: (import.meta.env.VITE_FINCH_LOCKER ?? "") as `0x${string}` | "",
+  registry: (import.meta.env.VITE_FINCH_REGISTRY ?? "") as `0x${string}` | "",
+  featureBoost: (import.meta.env.VITE_FINCH_FEATURE_BOOST ?? "") as `0x${string}` | "",
+} as const;
+
+export const explorerTx = (hash: string) => `${robinhoodChain.blockExplorers.default.url}/tx/${hash}`;
+export const explorerAddress = (a: string) => `${robinhoodChain.blockExplorers.default.url}/address/${a}`;

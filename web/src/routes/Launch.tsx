@@ -1,0 +1,265 @@
+import { useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { formatEther, parseEther, zeroAddress } from "viem";
+import type { Address } from "viem";
+import { usePrivy } from "@privy-io/react-auth";
+import { useActiveWallet } from "../components/Wallet";
+import { addresses, explorerTx } from "../lib/chain";
+import { ClaimKind, finchFactoryAbi } from "../lib/abis";
+import { getLaunchConfig, CURVE_A } from "../lib/launchCurve";
+import { getWalletClient, predictTokenAddress, publicClient } from "../lib/tx";
+
+const LAUNCH_FEE = parseEther("0.0005");
+
+type Status = { kind: "idle" | "working" | "done" | "error"; msg?: string; hash?: string; token?: string };
+
+export default function Launch({ onLaunched }: { onLaunched: (token: string) => void }) {
+  const { authenticated, login } = usePrivy();
+  const wallet = useActiveWallet();
+  const [f, setF] = useState({
+    name: "",
+    symbol: "",
+    logo: "",
+    description: "",
+    twitter: "",
+    telegram: "",
+    website: "",
+    farcaster: "",
+    bind: "none" as "none" | "repo" | "user",
+    githubId: "",
+    referrer: "",
+    startMcapEth: String(CURVE_A.startMcapEth),
+  });
+  const [status, setStatus] = useState<Status>({ kind: "idle" });
+
+  const set =
+    (k: keyof typeof f) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setF((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const configured = addresses.factory !== "";
+  const startMcap = Number(f.startMcapEth) || CURVE_A.startMcapEth;
+
+  const problems = useMemo(() => {
+    const p: string[] = [];
+    if (!f.name.trim()) p.push("name is required");
+    if (!f.symbol.trim()) p.push("symbol is required");
+    if (f.bind !== "none" && !/^\d+$/.test(f.githubId)) p.push("github id must be numeric, never owner/name");
+    if (f.referrer && !/^0x[a-fA-F0-9]{40}$/.test(f.referrer)) p.push("referrer must be a 0x address");
+    if (f.referrer && wallet && f.referrer.toLowerCase() === wallet.address.toLowerCase())
+      p.push("you cannot refer yourself; the factory rejects it");
+    if (!(startMcap > 0)) p.push("start market cap must be positive");
+    return p;
+  }, [f, wallet, startMcap]);
+
+  async function onLaunch() {
+    if (!wallet) return;
+    setStatus({ kind: "working", msg: "preparing" });
+    try {
+      const factory = addresses.factory as Address;
+      // Predicted at submit time, deliberately. See predictTokenAddress() for the race.
+      const predicted = await predictTokenAddress(factory);
+      const curve = getLaunchConfig({
+        tokenAddress: predicted,
+        wethAddress: addresses.weth,
+        startMcapEth: startMcap,
+      });
+
+      const params = {
+        name: f.name.trim(),
+        symbol: f.symbol.trim().toUpperCase(),
+        logo: f.logo.trim(),
+        description: f.description.trim(),
+        socials: {
+          twitter: f.twitter.trim(),
+          telegram: f.telegram.trim(),
+          discord: "",
+          website: f.website.trim(),
+          farcaster: f.farcaster.trim(),
+        },
+        claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
+        githubId: f.bind === "none" ? 0n : BigInt(f.githubId),
+        referrer: (f.referrer || zeroAddress) as Address,
+        initialSqrtPriceX96: curve.initialSqrtPriceX96,
+        tickLower: curve.tickLower,
+        tickUpper: curve.tickUpper,
+        restrictionBlocks: 3n,
+      };
+
+      // Simulate first: a revert here costs nothing and catches the address-prediction race
+      // before the user is asked to sign anything.
+      setStatus({ kind: "working", msg: "simulating" });
+      const { request } = await publicClient.simulateContract({
+        address: factory,
+        abi: finchFactoryAbi,
+        functionName: "launch",
+        args: [params],
+        value: LAUNCH_FEE,
+        account: wallet.address as Address,
+      });
+
+      setStatus({ kind: "working", msg: "confirm in your wallet" });
+      const client = await getWalletClient(wallet);
+      const hash = await client.writeContract(request);
+
+      setStatus({ kind: "working", msg: "waiting for confirmation", hash });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new Error("transaction reverted");
+
+      setStatus({ kind: "done", hash, token: predicted, msg: "launched" });
+      onLaunched(predicted);
+    } catch (err) {
+      const raw =
+        (err as { shortMessage?: string }).shortMessage ?? (err as Error).message ?? "failed";
+      setStatus({
+        kind: "error",
+        msg: /NoLiquidityMinted/i.test(raw)
+          ? "Another launch landed first, so the predicted token address shifted. Nothing was spent beyond gas. Press launch again."
+          : raw,
+      });
+    }
+  }
+
+  if (!configured) {
+    return (
+      <div className="panel">
+        <strong>launch a token</strong>
+        <p className="dim">
+          No factory address configured. Set <code>VITE_FINCH_FACTORY</code> in{" "}
+          <code>web/.env.local</code>. Run <code>npm run dev:fork</code> then{" "}
+          <code>npm run dev:seed</code> to get a local deployment to point at.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <strong>launch a token</strong>
+      <p className="dim">
+        One transaction: deploys the token, creates its Uniswap V3 pool, and deposits the whole
+        supply as locked liquidity. Liquidity is locked permanently and cannot be pulled.
+      </p>
+
+      <div className="grid2">
+        <div className="field">
+          <label>name</label>
+          <input value={f.name} onChange={set("name")} placeholder="Finch Genesis" />
+        </div>
+        <div className="field">
+          <label>symbol</label>
+          <input value={f.symbol} onChange={set("symbol")} placeholder="GENESIS" />
+        </div>
+      </div>
+      <div className="field">
+        <label>description</label>
+        <input value={f.description} onChange={set("description")} />
+      </div>
+      <div className="field">
+        <label>logo url</label>
+        <input value={f.logo} onChange={set("logo")} placeholder="https://" />
+      </div>
+      <div className="grid2">
+        <div className="field">
+          <label>twitter</label>
+          <input value={f.twitter} onChange={set("twitter")} />
+        </div>
+        <div className="field">
+          <label>telegram</label>
+          <input value={f.telegram} onChange={set("telegram")} />
+        </div>
+        <div className="field">
+          <label>website</label>
+          <input value={f.website} onChange={set("website")} />
+        </div>
+        <div className="field">
+          <label>farcaster</label>
+          <input value={f.farcaster} onChange={set("farcaster")} />
+        </div>
+      </div>
+
+      <div className="grid2">
+        <div className="field">
+          <label>fee rights</label>
+          <select value={f.bind} onChange={set("bind")}>
+            <option value="none">mine, I keep the fees</option>
+            <option value="repo">a GitHub repo, its admin claims</option>
+            <option value="user">a GitHub user, that account claims</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>start market cap (ETH)</label>
+          <input value={f.startMcapEth} onChange={set("startMcapEth")} />
+        </div>
+      </div>
+
+      {f.bind !== "none" && (
+        <div className="field">
+          <label>numeric github {f.bind} id</label>
+          <input value={f.githubId} onChange={set("githubId")} placeholder="1307535933" />
+          <p className="dim" style={{ marginTop: 6 }}>
+            You earn nothing from this token. Fees escrow until that GitHub {f.bind} claims them.
+            Bound to the numeric id, never a name, because names can be re-registered.
+          </p>
+        </div>
+      )}
+
+      <div className="field">
+        <label>referrer (optional)</label>
+        <input value={f.referrer} onChange={set("referrer")} placeholder="0x, paid out of the protocol share" />
+      </div>
+
+      <div className="review">
+        <div className="kv mono">
+          <div>supply</div>
+          <div>{CURVE_A.totalSupply.toLocaleString()} fixed, no mint function</div>
+          <div>implied start mcap</div>
+          <div>~{startMcap} ETH</div>
+          <div>launch fee</div>
+          <div>{formatEther(LAUNCH_FEE)} ETH</div>
+          <div>liquidity</div>
+          <div>100% locked, permanently</div>
+          <div>your fee share</div>
+          <div>{f.bind === "none" ? "80% of trading fees" : "none, escrowed for the GitHub owner"}</div>
+        </div>
+      </div>
+
+      {problems.length > 0 && (
+        <ul className="warn">
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
+        {!authenticated ? (
+          <button className="primary" onClick={login}>
+            connect wallet to launch
+          </button>
+        ) : (
+          <button
+            className="primary"
+            disabled={problems.length > 0 || status.kind === "working"}
+            onClick={onLaunch}
+          >
+            {status.kind === "working" ? "working" : `launch for ${formatEther(LAUNCH_FEE)} ETH`}
+          </button>
+        )}
+        {status.msg && (
+          <span className={status.kind === "error" ? "warn" : status.kind === "done" ? "ok" : "dim"}>
+            {status.msg}
+          </span>
+        )}
+      </div>
+
+      {status.hash && (
+        <p className="dim" style={{ marginTop: 8 }}>
+          <a href={explorerTx(status.hash)} target="_blank" rel="noreferrer noopener">
+            view transaction
+          </a>
+          {status.token ? <> · token <span className="mono">{status.token}</span></> : null}
+        </p>
+      )}
+    </div>
+  );
+}

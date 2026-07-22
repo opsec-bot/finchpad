@@ -1,0 +1,33 @@
+{
+  "name": "finchpad-web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "finchpad frontend. Kept as its own package so the backend service \u2014 which sits next to a signing key \u2014 keeps its zero-dependency posture.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@privy-io/react-auth": "^3.35.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "viem": "^2.55.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "overrides": {
+    "viem": "^2.55.5",
+    "ws": "^8.21.1",
+    "axios": "^1.18.1",
+    "uuid": "^11.1.1"
+  },
+  "_overridesNote": "Transitive pins, not preferences: Privy 3.35.1 ships viem 2.52.0 (advisory range <=2.54.1), which drags in a vulnerable ws; axios arrives via @coinbase/cdp-sdk. All three are patch/minor bumps inside the same major. This is the wallet-signing page, so it does not ship known-vulnerable crypto libs. uuid is pinned for the same reason (bounds check in v3/v5/v6). Revisit when Privy bumps upstream."
+}
