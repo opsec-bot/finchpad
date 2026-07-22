@@ -101,6 +101,24 @@ contract SeedLocal is Script {
         console.log("");
         console.log("Point the API at it:");
         console.log("  FINCHPAD_RPC_URL=http://localhost:8545 npm run api -- --factory <FinchFactory>");
+
+        // Machine-readable line for scripts/dev.mjs, which rewrites .env from it. Parsing
+        // forge's broadcast JSON is not an option: it mislabels contract names when
+        // transactions are batched (it reported buys as "FinchLock" and "approve").
+        console.log(
+            string.concat(
+                "FINCHPAD_DEPLOY factory=",
+                vm.toString(address(factory)),
+                " locker=",
+                vm.toString(address(locker)),
+                " registry=",
+                vm.toString(address(registry)),
+                " lockVault=",
+                vm.toString(address(lockVault)),
+                " featureBoost=",
+                vm.toString(address(featureBoost))
+            )
+        );
     }
 
     function _launch(
