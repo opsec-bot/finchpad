@@ -19,10 +19,13 @@ the referrer amounts, unused-return in markGraduated).
       permanently move 5pp of all future fees**. Options: (1) admin/keeper-only
       markGraduated, (2) require the threshold to hold across two observations N blocks
       apart, (3) track cumulative WETH-in from Swap events in the factory. See PR #8 comment.
-- [ ] **Rename `FeatureBoost.verify()` / "verified".** Anyone can buy the badge for any
-      token including their own scam. Honest paid promotion, but "verified" reads as
-      "vetted" on a pad positioned against scam-spam. Not rendered in the UI yet, so
-      renaming (promoted / sponsored) is free right now.
+- [x] **Renamed the paid badge to "boosted"** (your call, done on the branch). Anyone can
+      buy it for any token including their own scam, so "verified" would have read as
+      "vetted by finchpad" — the exact false assurance an anti-scam-spam pad must not sell.
+      `verify()`->`boost()`, `verified`->`boosted`, `verifyPrice`->`boostPrice`,
+      `Verified`->`Boosted`, `AlreadyVerified`->`AlreadyBoosted`,
+      `FINCH_VERIFY_PRICE`->`FINCH_BOOST_PRICE`; ABI/seed/README follow. Nothing rendered
+      it yet, so there was no migration. CI green on all 4 jobs.
 
 ## Stale branches cleaned 2026-07-22
 
