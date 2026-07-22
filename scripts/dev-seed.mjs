@@ -93,7 +93,25 @@ async function main() {
   const forge = foundryBin("forge");
   const child = spawn(
     forge,
-    ["script", "script/SeedLocal.s.sol", "--rpc-url", RPC, "--broadcast", "--unlocked", "--sender", DEV_ADDR],
+    [
+      "script",
+      "script/SeedLocal.s.sol",
+      "--rpc-url",
+      RPC,
+      "--broadcast",
+      "--unlocked",
+      "--sender",
+      DEV_ADDR,
+      // One transaction per block, waiting for each receipt.
+      //
+      // Without this, forge fires the whole batch and anvil packs several into one block.
+      // The seed buys each token right after launching it, so a buy could land inside that
+      // token's anti-snipe window (restrictionBlocks = 2) and revert — the pool's transfer
+      // to the buyer fails, surfacing as Uniswap's opaque "TF". That made the seed
+      // non-deterministic: same script, different tokens failing per run. Slow mode
+      // guarantees blocks advance between a launch and its buys.
+      "--slow",
+    ],
     { stdio: "inherit", cwd: contracts },
   );
 

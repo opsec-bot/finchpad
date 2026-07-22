@@ -159,6 +159,11 @@ the floor to the fork base keeps every scan inside local blocks.
 Both scripts are Node, not shell, so they run on Windows too (`npm run` there shells to cmd,
 where `bash` resolves to the WSL relay rather than Git Bash).
 
+`dev:seed` broadcasts in `--slow` mode (one transaction per block). That is not politeness:
+the seed buys each token immediately after launching it, and batched into one block a buy
+lands inside that token's anti-snipe window and reverts — the pool's transfer to the buyer
+fails and surfaces as Uniswap's opaque `TF`. Slow mode makes the seed deterministic.
+
 Robinhood's testnet (46630) has no Uniswap V3 deployed, so the launch flow can't run there.
 The dev scripts fork mainnet instead, giving the real Uniswap periphery with fake money:
 
