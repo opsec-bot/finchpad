@@ -11,9 +11,23 @@ today: list, token detail, chart, trades, featured rail, and a GitHub-claim butt
 opens an OAuth URL. There is **no wallet connection anywhere** (zero references to
 ethereum/walletconnect/sendTransaction in web/index.html), so no user can launch, trade,
 lock, burn, claim, boost, or request a CTO from the site. Polish comes after these exist.
-  - [ ] Wallet connect (the one unblocker for everything below)
-  - [ ] Launch flow -> `FinchFactory.launch()` (curve params from src/lib/launchCurve.js)
-  - [ ] Trade flow -> V3 router, slippage + price-impact display
+  - [x] **Wallet connect — DONE (Privy).** `web/` is now a Vite+React app (Privy's web SDK is
+        React-only). Kept as its own package so the backend stays zero-dependency next to the
+        signing key. Chain 4663 via viem `defineChain`; embedded wallets on login so someone
+        with no wallet can still launch. Only the PUBLIC app id ships — the Privy app secret
+        is unused by finchpad and should be deleted in the dashboard (it transited chat).
+  - [x] **Launch flow — DONE.** Full LaunchParams incl. claimKind/githubId/referrer, curve
+        math ported to TS, simulate-before-sign, plain-language review block (fixed supply,
+        locked liquidity, who gets the fees) instead of blind signing. Token address is
+        predicted from the factory nonce (address ordering picks the tick side); if another
+        launch lands first the simulate fails and the UI offers a retry instead of burning a
+        signature.
+  - [x] API serves `web/dist` with an extension-allowlisted, traversal-checked asset handler
+        plus CSP / nosniff / referrer-policy (closes F3 from the adoption report).
+  - [x] CI: frontend job (typecheck + build + `npm audit --audit-level=high`). Privy 3.35.1
+        arrived with 32 advisories incl. 2 high (viem 2.52.0, ws, axios, uuid); pinned
+        patched versions via `overrides` -> audit reports 0. Revisit when Privy bumps.
+  - [ ] Trade flow -> V3 router, slippage + price-impact display  **<- next**
   - [ ] Submit `claimGithub()` from the signature the OAuth flow already returns
   - [ ] Lock / burn / redirect / CTO-request / feature+boost purchase
   - [ ] No blind-signing anywhere: show exactly what is being signed
