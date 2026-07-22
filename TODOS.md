@@ -8,17 +8,22 @@ CI now green on all 4 jobs. Fixed on the branch: SeedLocal stack-too-deep at
 block; now state vars), and 2 Slither Medium false positives (uninitialized-local on
 the referrer amounts, unused-return in markGraduated).
 
-- [ ] **SECURITY, decide before merge: graduation is latchable without volume.**
-      `graduationBonusBps` makes graduation worth money (5pp protocol->creator, permanent),
-      but `markGraduated()` is permissionless + one-way and reads
-      `IERC20(weth).balanceOf(pool)` — a spot balance, not traded volume. PoC passed on a
-      mainnet fork: a plain `WETH.transfer(pool, 4.2 ether)` donation (no trades at all)
-      makes `graduationStatus()` report graduated and latches it forever. The practical
-      version is an atomic buy -> markGraduated -> sell in one tx: ~1% fee each way, and as
-      the creator ~80% of that comes back via the locker, so roughly **0.02 ETH to
-      permanently move 5pp of all future fees**. Options: (1) admin/keeper-only
-      markGraduated, (2) require the threshold to hold across two observations N blocks
-      apart, (3) track cumulative WETH-in from Swap events in the factory. See PR #8 comment.
+- [x] **FIXED: graduation now uses protocol-controlled accounting.** The spot
+      `IERC20(weth).balanceOf(pool)` read is gone from the money path. `collect()` banks the
+      WETH fees the locker actually pays out (`lifetimeWethFees`) and derives graduation from
+      that total; monotonic by construction, so `markGraduated()`, the `graduated` flag, the
+      AlreadyGraduated/NotGraduated errors and the IFinchFactoryGraduation interface were all
+      deleted. Original PoC re-run against the new code: 10 ETH donated, zero trades, fee
+      bonus does NOT move. Threshold is an immutable ctor arg (default 0.25 ether via
+      FINCH_GRAD_FEE_THRESHOLD ~= 25 ETH of buy volume at the 1% tier; uint256.max disables).
+      `Graduated(token, lifetimeWethFees)` still fires once for chart markers. 87 Foundry +
+      35 JS green, incl. a fuzz property that the accumulator advances by exactly the
+      collected WETH and never by donations or token-side fees.
+- [ ] **Decide: point the UI progress bar at the honest number.** The factory's
+      `graduationStatus()` is untouched and still reads the pool balance — now purely
+      cosmetic (no money depends on it), but a donation can still fake visible "traction" to
+      lure buyers. Either drive the bar from `graduationOf()` (one honest number) or accept
+      it as decorative. One-line frontend change.
 - [x] **Renamed the paid badge to "boosted"** (your call, done on the branch). Anyone can
       buy it for any token including their own scam, so "verified" would have read as
       "vetted by finchpad" — the exact false assurance an anti-scam-spam pad must not sell.
