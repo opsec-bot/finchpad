@@ -7,9 +7,9 @@ import type { Candle } from "../components/Chart";
 import TradePanel from "../components/TradePanel";
 import Transparency from "../components/Transparency";
 import { explorerAddress } from "../lib/chain";
+import { useEthUsd, usd, amount } from "../lib/money";
 
 const fmt = (n: number, d = 4) => n.toLocaleString(undefined, { maximumFractionDigits: d });
-const compact = (n: number) => (n >= 1e6 ? `${fmt(n / 1e6, 2)}M` : n >= 1e3 ? `${fmt(n / 1e3, 2)}k` : fmt(n, 2));
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 interface Trade {
@@ -23,6 +23,7 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
   const [candles, setCandles] = useState<Candle[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const ethUsd = useEthUsd();
 
   const load = useCallback(async () => {
     try {
@@ -70,15 +71,24 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
       </div>
 
       <div className="stats">
-        <Stat label="price" value={`${t.priceWeth.toExponential(3)} Ξ`} />
-        <Stat label="market cap" value={`${fmt(t.marketCapWeth, 3)} Ξ`} />
-        <Stat label="volume" value={`${fmt(volume, 3)} Ξ`} />
-        <Stat label="trades" value={String(trades.length)} />
-        <Stat label="supply" value={compact(t.totalSupply)} />
         <Stat
-          label="graduation"
-          value={g ? `${Math.min(100, Math.round(g.progress * 100))}%` : "—"}
+          label="price"
+          value={ethUsd ? usd(t.priceWeth * ethUsd) : `${t.priceWeth.toExponential(3)} Ξ`}
+          sub={ethUsd ? `${t.priceWeth.toExponential(3)} Ξ` : undefined}
         />
+        <Stat
+          label="market cap"
+          value={ethUsd ? usd(t.marketCapWeth * ethUsd) : `${fmt(t.marketCapWeth, 3)} Ξ`}
+          sub={ethUsd ? `${fmt(t.marketCapWeth, 3)} Ξ` : undefined}
+        />
+        <Stat
+          label="volume"
+          value={ethUsd ? usd(volume * ethUsd) : `${fmt(volume, 3)} Ξ`}
+          sub={ethUsd ? `${fmt(volume, 3)} Ξ` : undefined}
+        />
+        <Stat label="trades" value={String(trades.length)} />
+        <Stat label="supply" value={amount(t.totalSupply)} />
+        <Stat label="graduation" value={g ? `${Math.min(100, Math.round(g.progress * 100))}%` : "—"} />
       </div>
 
       {g && (
@@ -109,7 +119,8 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
                 <div key={i} className="row" style={{ cursor: "default" }}>
                   <span className={x.side}>{x.side}</span>
                   <span className="mono dim">
-                    {compact(x.tokenAmount)} {t.symbol} · {fmt(x.wethAmount, 5)} Ξ
+                    {amount(x.tokenAmount)} {t.symbol} ·{" "}
+                    {ethUsd ? usd(x.wethAmount * ethUsd) : `${fmt(x.wethAmount, 5)} Ξ`}
                   </span>
                 </div>
               ))}
@@ -132,11 +143,12 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="stat">
       <div className="dim">{label}</div>
       <div className="mono stat-v">{value}</div>
+      {sub && <div className="mono dim stat-sub">{sub}</div>}
     </div>
   );
 }

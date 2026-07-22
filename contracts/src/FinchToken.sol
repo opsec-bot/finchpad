@@ -36,18 +36,13 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
 
     Socials public socials;
 
-    // --- launch protection ---
+    /// @notice Block the token launched in. Informational only — kept because indexers and
+    ///         the UI use it as the token's birth block; it gates nothing.
     uint256 public launchBlock;
-    uint256 public restrictionsEndBlock;
-    uint256 public maxWalletAmount; // 5% of supply
-    uint256 public maxBuyAmount; // 5.5% of supply
 
     error NotFactory();
     error PoolAlreadySet();
     error ZeroAddress();
-    error LaunchBlockCreatorOnly();
-    error MaxWalletExceeded();
-    error MaxBuyExceeded();
 
     /// @dev The implementation contract must never be initializable directly.
     constructor() ERC20("", "") {
@@ -60,9 +55,8 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
      * @param logo_ image URI
      * @param description_ freeform description
      * @param socials_ social links
-     * @param creator_ launch creator (only buyer allowed on the launch block)
+     * @param creator_ launch creator
      * @param initialHolder_ receives the full mint (the factory/locker seeds liquidity + initial buy)
-     * @param restrictionBlocks_ how many blocks after launch the anti-snipe limits apply
      */
     function initialize(
         string calldata name_,
@@ -71,8 +65,7 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
         string calldata description_,
         Socials calldata socials_,
         address creator_,
-        address initialHolder_,
-        uint256 restrictionBlocks_
+        address initialHolder_
     ) external initializer {
         _tokenName = name_;
         _tokenSymbol = symbol_;
@@ -83,9 +76,6 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
         factory = msg.sender;
 
         launchBlock = block.number;
-        restrictionsEndBlock = block.number + restrictionBlocks_;
-        maxWalletAmount = (SUPPLY * 5) / 100;
-        maxBuyAmount = (SUPPLY * 55) / 1000;
 
         _mint(initialHolder_, SUPPLY);
     }
@@ -102,32 +92,9 @@ contract FinchToken is ERC20, ERC20Burnable, Initializable {
     function setLiquidityPool(address pool) external {
         if (msg.sender != factory) revert NotFactory();
         if (liquidityPool != address(0)) revert PoolAlreadySet();
-        // A zero pool would leave `liquidityPool == address(0)`, which the _update hook
-        // treats as "protection inactive" — silently disabling the whole anti-snipe window.
+        // The pool address is what indexers and the UI resolve trades against; a zero here
+        // would produce a token that looks launched but has no discoverable market.
         if (pool == address(0)) revert ZeroAddress();
         liquidityPool = pool;
-    }
-
-    /**
-     * @dev Anti-snipe launch protection. Restrictions apply ONLY to buys (tokens leaving
-     * the pool). Mints, burns (to address(0)), sells (to the pool), and wallet-to-wallet
-     * transfers are never restricted, matching pons behavior.
-     */
-    function _update(address from, address to, uint256 value) internal override {
-        bool active = block.number <= restrictionsEndBlock && liquidityPool != address(0);
-        bool isBuy = from == liquidityPool;
-
-        if (active && isBuy && to != factory) {
-            // slither-disable-next-line incorrect-equality
-            if (block.number == launchBlock) {
-                // Launch block: only the creator's initial buy can execute.
-                if (to != creator) revert LaunchBlockCreatorOnly();
-            } else {
-                if (value > maxBuyAmount) revert MaxBuyExceeded();
-                if (balanceOf(to) + value > maxWalletAmount) revert MaxWalletExceeded();
-            }
-        }
-
-        super._update(from, to, value);
     }
 }

@@ -8,6 +8,7 @@ import { addresses, explorerTx } from "../lib/chain";
 import { ClaimKind, finchFactoryAbi } from "../lib/abis";
 import { getLaunchConfig, CURVE_A } from "../lib/launchCurve";
 import { getWalletClient, predictTokenAddress, publicClient } from "../lib/tx";
+import { useEthUsd, usd } from "../lib/money";
 
 const LAUNCH_FEE = parseEther("0.0005");
 
@@ -16,6 +17,7 @@ type Status = { kind: "idle" | "working" | "done" | "error"; msg?: string; hash?
 export default function Launch({ onLaunched }: { onLaunched: (token: string) => void }) {
   const { authenticated, login } = usePrivy();
   const wallet = useActiveWallet();
+  const ethUsd = useEthUsd();
   const [f, setF] = useState({
     name: "",
     symbol: "",
@@ -24,7 +26,6 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     twitter: "",
     telegram: "",
     website: "",
-    farcaster: "",
     bind: "none" as "none" | "repo" | "user",
     githubId: "",
     referrer: "",
@@ -74,7 +75,7 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           telegram: f.telegram.trim(),
           discord: "",
           website: f.website.trim(),
-          farcaster: f.farcaster.trim(),
+          farcaster: "",
         },
         claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
         githubId: f.bind === "none" ? 0n : BigInt(f.githubId),
@@ -82,7 +83,6 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         initialSqrtPriceX96: curve.initialSqrtPriceX96,
         tickLower: curve.tickLower,
         tickUpper: curve.tickUpper,
-        restrictionBlocks: 3n,
       };
 
       // Simulate first: a revert here costs nothing and catches the address-prediction race
@@ -171,10 +171,6 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           <label>website</label>
           <input value={f.website} onChange={set("website")} />
         </div>
-        <div className="field">
-          <label>farcaster</label>
-          <input value={f.farcaster} onChange={set("farcaster")} />
-        </div>
       </div>
 
       <div className="grid2">
@@ -187,8 +183,27 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           </select>
         </div>
         <div className="field">
-          <label>start market cap (ETH)</label>
+          <label>
+            starting valuation
+            {ethUsd ? <span className="spacer-inline dim">{usd(startMcap * ethUsd)}</span> : null}
+          </label>
           <input value={f.startMcapEth} onChange={set("startMcapEth")} />
+          <div className="pcts">
+            {[0.5, 1, 2, 5].map((v) => (
+              <button
+                key={v}
+                className={startMcap === v ? "sel" : ""}
+                onClick={() => setF((p) => ({ ...p, startMcapEth: String(v) }))}
+              >
+                {ethUsd ? usd(v * ethUsd) : `${v} ETH`}
+              </button>
+            ))}
+          </div>
+          <p className="dim" style={{ marginTop: 6 }}>
+            What the whole supply is worth at the first trade — the price the pool opens at.
+            Lower means cheaper entry and more room to run; higher means buyers pay more per
+            token from the start.
+          </p>
         </div>
       </div>
 
@@ -212,10 +227,13 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         <div className="kv mono">
           <div>supply</div>
           <div>{CURVE_A.totalSupply.toLocaleString()} fixed, no mint function</div>
-          <div>implied start mcap</div>
-          <div>~{startMcap} ETH</div>
+          <div>opening valuation</div>
+          <div>{ethUsd ? `${usd(startMcap * ethUsd)} (${startMcap} ETH)` : `${startMcap} ETH`}</div>
           <div>launch fee</div>
-          <div>{formatEther(LAUNCH_FEE)} ETH</div>
+          <div>
+            {formatEther(LAUNCH_FEE)} ETH
+            {ethUsd ? ` (${usd(Number(formatEther(LAUNCH_FEE)) * ethUsd)})` : ""}
+          </div>
           <div>liquidity</div>
           <div>100% locked, permanently</div>
           <div>your fee share</div>

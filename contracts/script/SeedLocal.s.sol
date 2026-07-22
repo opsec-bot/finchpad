@@ -151,7 +151,6 @@ contract SeedLocal is Script {
                 initialSqrtPriceX96: sqrtP,
                 tickLower: lower,
                 tickUpper: upper,
-                restrictionBlocks: 2,
                 referrer: referrer
             })
         );

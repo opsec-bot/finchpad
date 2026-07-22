@@ -38,10 +38,33 @@ lock, burn, claim, boost, or request a CTO from the site. Polish comes after the
         volume, supply, graduation progress, plus a transparency panel stating locked
         liquidity, fixed supply, fee wallet, fee split, GitHub binding and escrow state —
         including the unflattering cases (unclaimed escrow, not-from-this-factory).
-  - [ ] Content policy for token names/symbols. They are attacker-controlled strings rendered
-        to every visitor; the injection half is handled (esc()), the moderation half is not.
-        Slurs and impersonation in the launch feed are a listing-quality problem for a pad
-        selling itself as the anti-scam option.
+  - [x] **USD everywhere** — price, market cap, volume and trades show USD with ETH beneath.
+        ETH/USD is fetched server-side and cached 60s, deliberately: doing it in the browser
+        would add a CSP origin to the page that prompts signing, and rate-limit per visitor.
+        Falls back to ETH-only if the feed is unavailable.
+  - [x] Removed the farcaster field; "start market cap (ETH)" is now "starting valuation"
+        with USD presets and an explanation of what it actually sets.
+  - [x] **Content moderation: NOT doing it.** Decided against — the pad is decentralized and
+        name filtering is not its job. The injection half (esc()) stays, since that is an
+        XSS defence, not a content policy.
+
+## Anti-snipe protection removed 2026-07-22
+
+Launch protection is gone from FinchToken: no `restrictionsEndBlock`, no wallet/buy caps, no
+launch-block-creator-only rule, and the `_update` override is deleted entirely. The token is
+now a plain ERC20Burnable. `launchBlock` stays as an informational birth block.
+
+Rationale (user call): the caps punished real buyers as often as bots, and their reverts
+surfaced through Uniswap as an opaque "TF" that is indistinguishable from a broken pool —
+it cost real debugging time twice in one day.
+
+- [ ] **CONSEQUENCE — R2 is now urgent, not optional.** With no protection, the first buyer
+      in the launch block wins, and a creator has no way to be that buyer: `launch()` does
+      not buy, and a follow-up transaction lands a block later. Anyone watching the mempool
+      can take the opening size. An atomic initial buy inside `launch()` is now the ONLY way
+      a creator gets a fair entry into their own token.
+- [ ] Re-run the Phase 5 pass over the modified token/factory before mainnet — the transfer
+      hook was on the money path.
   - [ ] Submit `claimGithub()` from the signature the OAuth flow already returns
   - [ ] Lock / burn / redirect / CTO-request / feature+boost purchase
   - [ ] No blind-signing anywhere: show exactly what is being signed

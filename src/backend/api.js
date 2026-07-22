@@ -52,6 +52,28 @@ async function cached(key, ttlMs, fn) {
   return value;
 }
 
+// --- ETH/USD ---------------------------------------------------------------------------
+// Fetched server-side and cached, deliberately: doing it in the browser would need a new
+// CSP origin on the page that prompts wallet signing, and would rate-limit per visitor
+// instead of once per server. Failure is non-fatal — the UI falls back to ETH-only.
+const PRICE_TTL_MS = 60_000;
+let ethUsd = { value: null, at: 0 };
+
+export async function getEthUsd() {
+  if (ethUsd.value !== null && Date.now() - ethUsd.at < PRICE_TTL_MS) return ethUsd.value;
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", {
+      signal: AbortSignal.timeout(4000),
+    });
+    const json = await res.json();
+    const usd = Number(json?.ethereum?.usd);
+    if (Number.isFinite(usd) && usd > 0) ethUsd = { value: usd, at: Date.now() };
+  } catch {
+    // Keep serving the last good value rather than flapping to null on one bad fetch.
+  }
+  return ethUsd.value;
+}
+
 // --- helpers --------------------------------------------------------------------------
 const isAddress = (s) => typeof s === "string" && /^0x[a-fA-F0-9]{40}$/.test(s);
 
@@ -99,7 +121,16 @@ async function route(url) {
   const q = url.searchParams;
 
   if (parts.length === 0 || parts[0] === "health") {
-    return { status: 200, body: { ok: true, factory: FACTORY, featureBoost: FEATURE_BOOST, uptimeSec: Math.floor(process.uptime()) } };
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        factory: FACTORY,
+        featureBoost: FEATURE_BOOST,
+        ethUsd: await getEthUsd(),
+        uptimeSec: Math.floor(process.uptime()),
+      },
+    };
   }
 
   // GET /featured — currently-featured tokens (paid placement). Empty until FeatureBoost is

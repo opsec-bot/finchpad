@@ -16,8 +16,6 @@ contract FinchTokenTest is Test {
     address bob = makeAddr("bob");
 
     uint256 constant SUPPLY = 1_000_000_000e18;
-    uint256 constant MAX_WALLET = (SUPPLY * 5) / 100; // 50M
-    uint256 constant MAX_BUY = (SUPPLY * 55) / 1000; // 55M
 
     function _socials() internal pure returns (FinchToken.Socials memory) {
         return FinchToken.Socials("x", "tg", "dc", "web", "fc");
@@ -27,7 +25,7 @@ contract FinchTokenTest is Test {
         impl = new FinchToken();
         token = FinchToken(Clones.clone(address(impl)));
         // This test contract is the "factory" (msg.sender to initialize).
-        token.initialize("Finch Coin", "FNCH", "logo://", "a test token", _socials(), creator, treasury, 3);
+        token.initialize("Finch Coin", "FNCH", "logo://", "a test token", _socials(), creator, treasury);
         token.setLiquidityPool(pool);
 
         // Seed the pool so we can simulate buys (to==pool is a sell, unrestricted).
@@ -43,20 +41,19 @@ contract FinchTokenTest is Test {
         assertEq(token.totalSupply(), SUPPLY);
         assertEq(token.creator(), creator);
         assertEq(token.liquidityPool(), pool);
-        assertEq(token.maxWalletAmount(), MAX_WALLET);
-        assertEq(token.maxBuyAmount(), MAX_BUY);
+        assertEq(token.launchBlock(), block.number);
         (string memory tw,,,,) = token.socials();
         assertEq(tw, "x");
     }
 
     function test_implementation_cannotBeInitialized() public {
         vm.expectRevert();
-        impl.initialize("x", "x", "", "", _socials(), creator, treasury, 3);
+        impl.initialize("x", "x", "", "", _socials(), creator, treasury);
     }
 
     function test_cannotReinitialize() public {
         vm.expectRevert();
-        token.initialize("x", "x", "", "", _socials(), creator, treasury, 3);
+        token.initialize("x", "x", "", "", _socials(), creator, treasury);
     }
 
     function test_setLiquidityPool_onceOnly() public {
@@ -68,14 +65,14 @@ contract FinchTokenTest is Test {
     /// entire anti-snipe window. Must be rejected.
     function test_setLiquidityPool_rejectsZero() public {
         FinchToken t2 = FinchToken(Clones.clone(address(impl)));
-        t2.initialize("t", "t", "", "", _socials(), creator, treasury, 3);
+        t2.initialize("t", "t", "", "", _socials(), creator, treasury);
         vm.expectRevert(FinchToken.ZeroAddress.selector);
         t2.setLiquidityPool(address(0));
     }
 
     function test_setLiquidityPool_onlyFactory() public {
         FinchToken t2 = FinchToken(Clones.clone(address(impl)));
-        t2.initialize("t", "t", "", "", _socials(), creator, treasury, 3);
+        t2.initialize("t", "t", "", "", _socials(), creator, treasury);
         vm.prank(alice);
         vm.expectRevert(FinchToken.NotFactory.selector);
         t2.setLiquidityPool(pool);
@@ -95,75 +92,53 @@ contract FinchTokenTest is Test {
         assertEq(token.totalSupply(), SUPPLY - 400e18);
     }
 
-    function test_burn_allowedDuringLaunchWindow() public {
-        // still inside the restriction window
-        assertLe(block.number, token.restrictionsEndBlock());
-        vm.prank(treasury);
-        token.transfer(alice, 1_000e18); // wallet-to-wallet, unrestricted
-        vm.prank(alice);
-        token.burn(1_000e18); // to address(0) must be exempt from launch protection
-        assertEq(token.balanceOf(alice), 0);
+    // --- unrestricted trading -----------------------------------------------------------
+    //
+    // Launch protection was removed deliberately: capping the first blocks punished real
+    // buyers as often as bots, and the reverts it produced (surfacing as Uniswap's opaque
+    // "TF") were indistinguishable from a broken pool. These tests pin the token as a plain
+    // ERC-20 so a future change cannot quietly reintroduce a transfer restriction.
+
+    function test_buyOfAnySizeAllowedImmediately() public {
+        assertEq(block.number, token.launchBlock(), "still the launch block");
+        // A buy is a transfer out of the pool. Any size, any recipient, first block.
+        vm.prank(pool);
+        token.transfer(alice, 200_000_000e18);
+        assertEq(token.balanceOf(alice), 200_000_000e18);
     }
 
-    // --- launch protection ---
-
-    function test_launchBlock_onlyCreatorCanBuy() public {
+    function test_nonCreatorCanBuyOnTheLaunchBlock() public {
         assertEq(block.number, token.launchBlock());
-        // buy = transfer from pool
         vm.prank(pool);
-        vm.expectRevert(FinchToken.LaunchBlockCreatorOnly.selector);
-        token.transfer(alice, 1e18);
-
-        // creator buy allowed
-        vm.prank(pool);
-        token.transfer(creator, 1e18);
-        assertEq(token.balanceOf(creator), 1e18);
+        token.transfer(bob, 90_000_000e18);
+        assertEq(token.balanceOf(bob), 90_000_000e18);
     }
 
-    function test_window_buyOverMaxBuyReverts() public {
-        vm.roll(block.number + 1); // block 2, inside window, past launch block
-        vm.prank(pool);
-        vm.expectRevert(FinchToken.MaxBuyExceeded.selector);
-        token.transfer(alice, MAX_BUY + 1);
+    function test_entireHolderBalanceCanMoveInOneTransfer() public {
+        uint256 all = token.balanceOf(treasury);
+        vm.prank(treasury);
+        token.transfer(alice, all);
+        assertEq(token.balanceOf(alice), all, "no cap on transfer size");
     }
 
-    function test_window_buyOverMaxWalletReverts() public {
-        vm.roll(block.number + 1);
-        // 51M: under the 55M buy cap but over the 50M wallet cap
-        vm.prank(pool);
-        vm.expectRevert(FinchToken.MaxWalletExceeded.selector);
-        token.transfer(alice, 51_000_000e18);
-    }
-
-    function test_window_normalBuyOk() public {
-        vm.roll(block.number + 1);
+    function test_sellsAndWalletTransfersUnrestricted() public {
         vm.prank(pool);
         token.transfer(alice, 40_000_000e18);
-        assertEq(token.balanceOf(alice), 40_000_000e18);
-    }
-
-    function test_window_sellUnrestricted() public {
-        vm.roll(block.number + 1);
-        vm.prank(pool);
-        token.transfer(alice, 40_000_000e18); // buy up to cap
-        // alice sells everything back (to==pool), no restriction
         vm.prank(alice);
-        token.transfer(pool, 40_000_000e18);
+        token.transfer(pool, 40_000_000e18); // sell straight back
         assertEq(token.balanceOf(alice), 0);
-    }
 
-    function test_window_walletToWalletUnrestricted() public {
-        vm.roll(block.number + 1);
-        // treasury sends alice a large amount wallet-to-wallet (not a buy)
         vm.prank(treasury);
-        token.transfer(alice, 80_000_000e18); // > wallet cap, but not from pool
-        assertEq(token.balanceOf(alice), 80_000_000e18);
+        token.transfer(bob, 80_000_000e18); // wallet to wallet
+        assertEq(token.balanceOf(bob), 80_000_000e18);
     }
 
-    function test_afterWindow_largeBuyOk() public {
-        vm.roll(token.restrictionsEndBlock() + 1);
-        vm.prank(pool);
-        token.transfer(alice, 200_000_000e18); // way over caps, but window closed
-        assertEq(token.balanceOf(alice), 200_000_000e18);
+    function test_burn_worksOnTheLaunchBlock() public {
+        vm.prank(treasury);
+        token.transfer(alice, 1_000e18);
+        vm.prank(alice);
+        token.burn(1_000e18);
+        assertEq(token.balanceOf(alice), 0);
+        assertEq(token.totalSupply(), SUPPLY - 1_000e18);
     }
 }

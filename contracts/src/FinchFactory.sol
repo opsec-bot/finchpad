@@ -49,7 +49,6 @@ contract FinchFactory is ReentrancyGuard {
         uint160 initialSqrtPriceX96; // starting pool price (respecting token ordering)
         int24 tickLower; // single-sided range for the full supply
         int24 tickUpper;
-        uint64 restrictionBlocks; // anti-snipe window length
         address referrer; // who referred this launch; earns a slice of the protocol fee share.
             // address(0) = no referral. May not be the launcher (see SelfReferral).
     }
@@ -133,7 +132,7 @@ contract FinchFactory is ReentrancyGuard {
         // 1. Clone + initialize the token; full supply is minted to this factory.
         token = Clones.clone(tokenImplementation);
         FinchToken(token).initialize(
-            p.name, p.symbol, p.logo, p.description, p.socials, msg.sender, address(this), p.restrictionBlocks
+            p.name, p.symbol, p.logo, p.description, p.socials, msg.sender, address(this)
         );
 
         // 2. Order token0/token1 by address (Uniswap invariant).

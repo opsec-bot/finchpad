@@ -46,7 +46,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  health: () => get<{ ok: boolean; factory: string; featureBoost: string | null }>("/health"),
+  health: () => get<{ ok: boolean; factory: string; featureBoost: string | null; ethUsd: number | null }>("/health"),
   tokens: (blocks = 3000, limit = 25) =>
     get<{ factory: string; count: number; launches: TokenSummary[] }>(`/tokens?blocks=${blocks}&limit=${limit}`),
   token: (addr: string) => get<TokenDetail>(`/tokens/${addr}`),

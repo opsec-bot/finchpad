@@ -86,7 +86,6 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3,
             referrer: address(0)
         });
 
@@ -145,7 +144,6 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3,
             referrer: address(0)
         });
 

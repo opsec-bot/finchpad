@@ -110,3 +110,4 @@ button.primary.sell { background: var(--down); border-color: var(--down); color:
   .wrap, .wrap-single { padding: 12px 14px; }
   h1 { font-size: 16px; }
 }
+.stat-sub { font-size: 11px; margin-top: 1px; }
