@@ -115,6 +115,41 @@ function send(req, res, status, body, headers) {
   res.end(req.method === "HEAD" ? undefined : payload);
 }
 
+// --- GitHub identity resolution --------------------------------------------------------
+// Creators type a username or owner/repo; the CONTRACT binds the numeric id, because names
+// get renamed and re-registered and a squatter who picks up a freed name would otherwise
+// inherit someone else's fee stream. So the UI resolves name -> id here, server-side:
+// unauthenticated GitHub calls are rate-limited per IP (60/hr), and doing it in the browser
+// would burn the visitor's quota and add a CSP origin to the page that prompts signing.
+const ghCache = new Map(); // key -> { id, login, at }
+const GH_TTL_MS = 10 * 60_000;
+
+async function resolveGithub(kind, q) {
+  const key = `${kind}:${q.toLowerCase()}`;
+  const hit = ghCache.get(key);
+  if (hit && Date.now() - hit.at < GH_TTL_MS) return hit;
+
+  const url = kind === "user" ? `https://api.github.com/users/${q}` : `https://api.github.com/repos/${q}`;
+  const headers = { accept: "application/vnd.github+json", "user-agent": "finchpad" };
+  // An OAuth client id/secret lifts the rate limit; optional.
+  if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+    const basic = Buffer.from(`${process.env.GITHUB_CLIENT_ID}:${process.env.GITHUB_CLIENT_SECRET}`).toString("base64");
+    headers.authorization = `Basic ${basic}`;
+  }
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+  if (res.status === 404) return { notFound: true };
+  if (!res.ok) throw new Error(`github lookup failed (${res.status})`);
+  const j = await res.json();
+  const out = {
+    id: String(j.id),
+    login: kind === "user" ? j.login : j.full_name,
+    avatar: kind === "user" ? j.avatar_url : j.owner?.avatar_url,
+    at: Date.now(),
+  };
+  ghCache.set(key, out);
+  return out;
+}
+
 // --- routes ---------------------------------------------------------------------------
 async function route(url) {
   const parts = url.pathname.split("/").filter(Boolean);
@@ -141,6 +176,23 @@ async function route(url) {
       getFeatured({ featureBoost: FEATURE_BOOST, blocks })
     );
     return { status: 200, body: { featureBoost: FEATURE_BOOST, count: featured.length, featured } };
+  }
+
+  // GET /github/resolve?kind=user|repo&q=octocat  ->  { id, login }
+  if (parts[0] === "github" && parts[1] === "resolve") {
+    const kind = q.get("kind") === "repo" ? "repo" : "user";
+    const raw = (q.get("q") || "").trim().replace(/^@/, "");
+    const valid = kind === "user" ? /^[A-Za-z0-9-]{1,39}$/.test(raw) : /^[\w.-]+\/[\w.-]+$/.test(raw);
+    if (!valid) {
+      return { status: 400, body: { error: kind === "user" ? "invalid github username" : "expected owner/name" } };
+    }
+    try {
+      const r = await resolveGithub(kind, raw);
+      if (r.notFound) return { status: 404, body: { error: `no such github ${kind}` } };
+      return { status: 200, body: { kind, id: r.id, login: r.login, avatar: r.avatar } };
+    } catch (err) {
+      return { status: 502, body: { error: err.message } };
+    }
   }
 
   if (parts[0] !== "tokens") return { status: 404, body: { error: "not found" } };

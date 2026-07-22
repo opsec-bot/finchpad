@@ -58,5 +58,9 @@ export const api = {
     get<{ symbol: string; count: number; trades: { side: "buy" | "sell"; tokenAmount: number; wethAmount: number }[] }>(
       `/tokens/${addr}/trades?blocks=${blocks}`,
     ),
+  resolveGithub: (kind: "user" | "repo", q: string) =>
+    get<{ kind: string; id: string; login: string; avatar?: string }>(
+      `/github/resolve?kind=${kind}&q=${encodeURIComponent(q)}`,
+    ),
   featured: () => get<{ count: number; featured: { token: string; until: number }[] }>("/featured"),
 };

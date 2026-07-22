@@ -1,5 +1,22 @@
 # finchpad TODOS
 
+## SAVED FOR LATER — "claim fees" flow (creator-facing, not built)
+
+The piece that makes GitHub-bound launches usable end to end. Today a creator can only claim
+by having someone hand them a signed payload; there is no menu for it.
+
+Intended flow:
+1. Sign in to finchpad with GitHub (OAuth already exists, `/auth/github/*`).
+2. finchpad lists every token bound to that account — `GithubBound` is indexed by githubId,
+   so this is a one-topic log query, plus the escrowed amount per token from `escrowOf()`.
+3. "Claim fees to my wallet" per token: backend signs the EIP-712 attestation, the UI submits
+   `claimGithub()`, escrow pays out and the fee wallet becomes theirs.
+4. Same menu shows already-claimed tokens and lets them redirect the fee wallet later.
+
+Notes: the contract binds the NUMERIC id and must keep doing so (a freed username must not
+hand a stranger someone's fee stream). The UI resolves name -> id via `/github/resolve`, which
+is now built. Blocked only on the signer key being provisioned (`FINCH_CLAIM_SIGNER_KEY`).
+
 ## ROADMAP (set 2026-07-22, after PR #8 merged)
 
 Five priorities, in the only order the dependencies allow. The sequencing matters more than
@@ -69,6 +86,19 @@ it cost real debugging time twice in one day.
       an identical no-buy launch through the router and comparing), underfunded buy reverts,
       zero-buy launch works, fee wallet routes fees from block one, zero fee wallet defaults
       to the creator.
+- [x] **GitHub binding takes a username / owner-repo, not a numeric id.** The UI resolves it
+      through `/github/resolve` (server-side: unauthenticated GitHub is 60/hr per IP, and
+      doing it in the browser would burn the visitor's quota and add a CSP origin to the
+      signing page) and shows the creator exactly which numeric id will be written on-chain.
+      The contract still binds the id — that is the rename/squat protection.
+- [x] **Launch form restructured**: advanced menu hides fee rights, fee recipient, opening buy
+      and referrer; the opening-price line is gone entirely; token image is now a file picker
+      that centre-crops and downscales to 128px in the browser rather than a pasted URL.
+- [ ] **Decide where token images live.** The picker currently emits a data URI: self-contained
+      and cannot rot, but it is stored on-chain with the token and costs real gas (capped at
+      ~24KB). The alternatives are an IPFS pin (needs a pinning service) or a finchpad upload
+      endpoint (needs a POST route on a service that will sit next to the signing key). This
+      is the only part of the image change that is not finished.
 - [ ] **OPEN — fee wallet immutability conflicts with the fee-rights layer.** The review asks
       that the fee recipient only ever be settable at launch. That cannot hold as written:
       GitHub claims move the fee wallet from escrow to the claimant (the whole feature), and

@@ -9,6 +9,8 @@ import { ClaimKind, finchFactoryAbi } from "../lib/abis";
 import { getLaunchConfig, CURVE_A } from "../lib/launchCurve";
 import { getWalletClient, predictTokenAddress, publicClient } from "../lib/tx";
 import { useEthUsd, usd } from "../lib/money";
+import GithubBinding from "../components/GithubBinding";
+import LogoPicker from "../components/LogoPicker";
 
 const LAUNCH_FEE = parseEther("0.0005");
 
@@ -27,12 +29,14 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     telegram: "",
     website: "",
     bind: "none" as "none" | "repo" | "user",
-    githubId: "",
+    githubHandle: "",
     referrer: "",
     feeWallet: "",
     creatorBuy: "",
   });
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [githubId, setGithubId] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
 
   const set =
     (k: keyof typeof f) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -47,14 +51,14 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     const p: string[] = [];
     if (!f.name.trim()) p.push("name is required");
     if (!f.symbol.trim()) p.push("symbol is required");
-    if (f.bind !== "none" && !/^\d+$/.test(f.githubId)) p.push("github id must be numeric, never owner/name");
+    if (f.bind !== "none" && !githubId) p.push(f.bind === "repo" ? "enter a repo as owner/name" : "enter a GitHub username");
     if (f.referrer && !/^0x[a-fA-F0-9]{40}$/.test(f.referrer)) p.push("referrer must be a 0x address");
     if (f.referrer && wallet && f.referrer.toLowerCase() === wallet.address.toLowerCase())
       p.push("you cannot refer yourself; the factory rejects it");
     if (f.feeWallet && !/^0x[a-fA-F0-9]{40}$/.test(f.feeWallet)) p.push("fee recipient must be a 0x address");
     if (f.creatorBuy && !(Number(f.creatorBuy) >= 0)) p.push("opening buy must be a positive amount");
     return p;
-  }, [f, wallet, startMcap]);
+  }, [f, wallet, githubId]);
 
   async function onLaunch() {
     if (!wallet) return;
@@ -82,7 +86,7 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           farcaster: "",
         },
         claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
-        githubId: f.bind === "none" ? 0n : BigInt(f.githubId),
+        githubId: f.bind === "none" ? 0n : BigInt(githubId!),
         referrer: (f.referrer || zeroAddress) as Address,
         feeWallet: (f.feeWallet || zeroAddress) as Address,
         creatorBuyAmount: f.creatorBuy ? parseEther(f.creatorBuy) : 0n,
@@ -164,8 +168,8 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         <input value={f.description} onChange={set("description")} maxLength={256} />
       </div>
       <div className="field">
-        <label>logo url</label>
-        <input value={f.logo} onChange={set("logo")} placeholder="https://" />
+        <label>token image</label>
+        <LogoPicker value={f.logo} onChange={(v) => setF((p) => ({ ...p, logo: v }))} />
       </div>
       <div className="grid2">
         <div className="field">
@@ -188,7 +192,11 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         </div>
       </div>
 
-      <div className="grid2">
+      <button type="button" className="adv-toggle" onClick={() => setAdvanced((v) => !v)}>
+        {advanced ? "▾" : "▸"} advanced
+      </button>
+
+      <div style={{ display: advanced ? "block" : "none" }}>
         <div className="field">
           <label>fee rights</label>
           <select value={f.bind} onChange={set("bind")}>
@@ -197,24 +205,23 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
             <option value="user">a GitHub user, that account claims</option>
           </select>
         </div>
-        <div className="field">
-          <label>opening price</label>
-          <div className="review" style={{ padding: "8px 10px" }}>
-            <span className="mono">
-              {ethUsd ? usd(startMcap * ethUsd) : `${startMcap} ETH`} starting valuation
-            </span>
-            <span className="dim"> — same for every finchpad launch</span>
-          </div>
-        </div>
-      </div>
 
       {f.bind !== "none" && (
         <div className="field">
-          <label>numeric github {f.bind} id</label>
-          <input value={f.githubId} onChange={set("githubId")} placeholder="1307535933" />
+          <label>{f.bind === "repo" ? "repository" : "github username"}</label>
+          <div className="prefixed">
+            <span className="dim">github.com/</span>
+            <input
+              value={f.githubHandle}
+              onChange={set("githubHandle")}
+              placeholder={f.bind === "repo" ? "owner/name" : "username"}
+            />
+          </div>
+          <GithubBinding kind={f.bind} value={f.githubHandle} onResolved={setGithubId} />
           <p className="dim" style={{ marginTop: 6 }}>
-            You earn nothing from this token. Fees escrow until that GitHub {f.bind} claims them.
-            Bound to the numeric id, never a name, because names can be re-registered.
+            You earn nothing from this token — fees escrow until that GitHub {f.bind} claims them.
+            The token stores the account's permanent numeric id, not the name, so a rename or a
+            freed username cannot hand your fees to someone else.
           </p>
         </div>
       )}
@@ -249,9 +256,10 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         </p>
       </div>
 
-      <div className="field">
-        <label>referrer (optional)</label>
-        <input value={f.referrer} onChange={set("referrer")} placeholder="0x, paid out of the protocol share" />
+        <div className="field">
+          <label>referrer (optional)</label>
+          <input value={f.referrer} onChange={set("referrer")} placeholder="0x, paid out of the protocol share" />
+        </div>
       </div>
 
       <div className="review">
