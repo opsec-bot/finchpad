@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Feather, Plus } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { WalletButton } from "@/components/Wallet";
@@ -6,6 +7,7 @@ import Explore from "@/routes/Explore";
 import Launch from "@/routes/Launch";
 import Token from "@/routes/Token";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type Tab = "explore" | "launch";
 
@@ -21,53 +23,51 @@ export default function App() {
       .catch(() => setApiUp(false));
   }, []);
 
+  function goExplore() {
+    setTab("explore");
+    setSelected(null);
+  }
+
+  const onExplore = tab === "explore" && !selected;
+
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
-          <button
-            className="lift group flex items-center gap-2.5"
-            onClick={() => {
-              setTab("explore");
-              setSelected(null);
-            }}
-          >
-            <img
-              src="/logo.svg"
-              alt=""
-              width={32}
-              height={32}
-              className="rounded-lg transition-[filter] duration-300 group-hover:glow-primary"
-            />
-            <span className="text-lg font-bold tracking-tight">finchpad</span>
-          </button>
+      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 px-4 md:px-6">
+          <div className="flex items-center gap-6">
+            <button className="flex items-center gap-2" onClick={goExplore}>
+              <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Feather className="size-4" aria-hidden />
+              </span>
+              <span className="text-[15px] font-semibold tracking-tight">finchpad</span>
+            </button>
+            <nav className="hidden items-center gap-1 md:flex">
+              <button
+                onClick={goExplore}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
+                  onExplore ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Explore
+              </button>
+            </nav>
+          </div>
 
-          <nav className="ml-2 hidden items-center gap-1 sm:flex">
-            <Button
-              variant={tab === "explore" && !selected ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setTab("explore");
-                setSelected(null);
-              }}
-            >
-              Explore
-            </Button>
-            <Button variant={tab === "launch" ? "secondary" : "ghost"} size="sm" onClick={() => setTab("launch")}>
-              Launch
-            </Button>
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2">
             {apiUp === false && (
               <span className="hidden text-xs text-destructive sm:inline">API offline — run npm run dev</span>
             )}
+            <Button size="sm" onClick={() => setTab("launch")}>
+              <Plus className="size-4" aria-hidden />
+              Launch token
+            </Button>
             <WalletButton />
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
         {tab === "explore" ? (
           selected ? (
             <Token address={selected} onBack={() => setSelected(null)} />
@@ -75,14 +75,13 @@ export default function App() {
             <Explore onSelect={setSelected} />
           )
         ) : (
-          <div className="mx-auto max-w-2xl">
-            <Launch
-              onLaunched={(token) => {
-                setSelected(token);
-                setTab("explore");
-              }}
-            />
-          </div>
+          <Launch
+            onLaunched={(token) => {
+              setSelected(token);
+              setTab("explore");
+            }}
+            onCancel={goExplore}
+          />
         )}
       </main>
 

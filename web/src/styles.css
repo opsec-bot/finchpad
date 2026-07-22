@@ -91,11 +91,17 @@
     /* One soft teal wash behind the fold: depth without decoration. */
     background-image: radial-gradient(60rem 40rem at 50% -12rem, oklch(0.24 0.03 200 / 0.5), transparent 70%);
     background-attachment: fixed;
+    font-feature-settings: "cv11", "ss01";
   }
   /* Numbers line up in price columns and tables. */
   .tabular {
     font-variant-numeric: tabular-nums;
     @apply font-mono;
+  }
+  /* Tabular lining numerals without forcing the mono family — numbers are the content. */
+  .tnum {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
   }
 }
 

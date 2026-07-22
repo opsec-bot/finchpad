@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
-import { api } from "../lib/api";
-import type { TokenDetail } from "../lib/api";
-import Chart from "../components/Chart";
-import type { Candle } from "../components/Chart";
-import TradePanel from "../components/TradePanel";
-import Transparency from "../components/Transparency";
-import { explorerAddress } from "../lib/chain";
-import { useEthUsd, usd, amount } from "../lib/money";
-
-const fmt = (n: number, d = 4) => n.toLocaleString(undefined, { maximumFractionDigits: d });
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+import { ChevronLeft } from "lucide-react";
+import { api } from "@/lib/api";
+import type { TokenDetail } from "@/lib/api";
+import type { Candle } from "@/components/Chart";
+import { Card } from "@/components/ui/card";
+import TokenHeader from "@/components/TokenHeader";
+import StatRow from "@/components/StatRow";
+import PriceChart from "@/components/PriceChart";
+import TradeHistory from "@/components/TradeHistory";
+import TradePanel from "@/components/TradePanel";
+import GraduationCard from "@/components/GraduationCard";
+import TrustPanel from "@/components/TrustPanel";
+import { change24h as change24hOf } from "@/lib/tokenView";
 
 interface Trade {
   side: "buy" | "sell";
   tokenAmount: number;
   wethAmount: number;
+  timestamp: number;
 }
 
 export default function Token({ address, onBack }: { address: string; onBack: () => void }) {
@@ -23,7 +26,6 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
   const [candles, setCandles] = useState<Candle[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const ethUsd = useEthUsd();
 
   const load = useCallback(async () => {
     try {
@@ -43,92 +45,46 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
   useEffect(() => {
     setT(null);
     setErr(null);
+    setCandles([]);
+    setTrades([]);
     void load();
   }, [load]);
 
-  if (err) return <div className="panel warn">{err}</div>;
-  if (!t) return <div className="panel dim">loading…</div>;
+  if (err) return <Card className="border-destructive/40 p-4 text-sm text-destructive">{err}</Card>;
+  if (!t)
+    return (
+      <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">loading…</div>
+    );
 
-  // 24h volume from the indexed window, in ETH.
-  const volume = trades.reduce((sum, x) => sum + x.wethAmount, 0);
-  const g = t.graduation;
+  // 24h volume from the indexed window, in ETH; change from the candle series.
+  const volumeWeth = trades.reduce((sum, x) => sum + x.wethAmount, 0);
+  const change = change24hOf(candles);
 
   return (
     <div className="flex flex-col gap-4 rise">
-      <div className="panel token-head">
-        <button className="rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={onBack}>
-          ← all tokens
-        </button>
-        <div className="flex flex-wrap items-baseline gap-2 text-base">
-          <strong>{t.name}</strong>
-          <span className="text-muted-foreground">${t.symbol}</span>
-          {t.github?.claimed && <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">github verified</span>}
-          {g?.graduated && <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">graduated</span>}
-        </div>
-        <a className="dim mono addr" href={explorerAddress(t.address)} target="_blank" rel="noreferrer noopener">
-          {short(t.address)}
-        </a>
-      </div>
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" aria-hidden />
+        Explore
+      </button>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat
-          label="price"
-          value={ethUsd ? usd(t.priceWeth * ethUsd) : `${t.priceWeth.toExponential(3)} Ξ`}
-          sub={ethUsd ? `${t.priceWeth.toExponential(3)} Ξ` : undefined}
-        />
-        <Stat
-          label="market cap"
-          value={ethUsd ? usd(t.marketCapWeth * ethUsd) : `${fmt(t.marketCapWeth, 3)} Ξ`}
-          sub={ethUsd ? `${fmt(t.marketCapWeth, 3)} Ξ` : undefined}
-        />
-        <Stat
-          label="volume"
-          value={ethUsd ? usd(volume * ethUsd) : `${fmt(volume, 3)} Ξ`}
-          sub={ethUsd ? `${fmt(volume, 3)} Ξ` : undefined}
-        />
-        <Stat label="trades" value={String(trades.length)} />
-        <Stat label="supply" value={amount(t.totalSupply)} />
-        <Stat label="graduation" value={g ? `${Math.min(100, Math.round(g.progress * 100))}%` : "—"} />
-      </div>
+      <TokenHeader token={t} change24h={change} />
+      <StatRow token={t} volumeWeth={volumeWeth} />
 
-      {g && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-muted-foreground">
-            graduation — {fmt(g.earnedFeesEth, 4)} / {fmt(g.thresholdEth, 4)} Ξ in fees earned
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-secondary" style={{ marginTop: 6 }}>
-            <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(100, g.progress * 100)}%` }} />
-          </div>
-        </div>
-      )}
-
-      <div className="grid items-start gap-4 lg:grid-cols-[1fr_380px]">
-        <div>
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong>price</strong>
-            <div style={{ marginTop: 8 }}>
-              <Chart candles={candles} />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong>recent trades</strong>
-            <div style={{ marginTop: 8 }}>
-              {trades.length === 0 && <span className="text-muted-foreground">no trades yet</span>}
-              {trades.slice(0, 25).map((x, i) => (
-                <div key={i} className="flex justify-between gap-2 border-b border-border/60 py-1.5 text-sm last:border-0">
-                  <span className={x.side}>{x.side}</span>
-                  <span className="tabular text-muted-foreground">
-                    {amount(x.tokenAmount)} {t.symbol} ·{" "}
-                    {ethUsd ? usd(x.wethAmount * ethUsd) : `${fmt(x.wethAmount, 5)} Ξ`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Left: chart + trades */}
+        <div className="order-last flex flex-col gap-4 lg:order-none">
+          <Card className="h-[380px] gap-0 overflow-hidden p-0">
+            <PriceChart candles={candles} />
+          </Card>
+          <TradeHistory symbol={t.symbol} trades={trades} />
         </div>
 
-        <div>
+        {/* Right: trade panel + graduation + trust */}
+        <div className="flex flex-col gap-4">
           <TradePanel
             token={t.address as Address}
             pool={t.pool as Address}
@@ -136,19 +92,10 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
             tokenIsToken0={t.tokenIsToken0}
             onTraded={load}
           />
-          <Transparency t={t} />
+          {t.graduation && <GraduationCard graduation={t.graduation} />}
+          <TrustPanel token={t} />
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
-      <div className="text-muted-foreground">{label}</div>
-      <div className="mono stat-v">{value}</div>
-      {sub && <div className="mono dim stat-sub">{sub}</div>}
     </div>
   );
 }
