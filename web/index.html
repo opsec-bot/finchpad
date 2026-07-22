@@ -163,7 +163,7 @@ async function select(token) {
         <div>supply</div><div>${fmt(t.totalSupply, 0)}</div>
       </div>
       ${g ? `<div style="margin-top:12px">
-        <div class="dim">graduation ${fmt(g.pairedPrincipalEth,3)} / ${g.thresholdEth} Ξ
+        <div class="dim">graduation ${fmt(g.earnedFeesEth,4)} / ${fmt(g.thresholdEth,4)} Ξ <span class="dim">fees earned</span>
           ${g.graduated ? '<span class="pill" style="color:var(--up)">graduated</span>' : ""}</div>
         <div class="bar" style="margin-top:5px"><i style="width:${Math.min(100, g.progress*100)}%"></i></div>
       </div>` : ""}

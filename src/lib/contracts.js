@@ -70,7 +70,7 @@ export const factoryAbi = parseAbi([
 /// function) — launch state lives in the locker, reachable via factory.locker().
 export const finchFactoryAbi = parseAbi([
   "function locker() view returns (address)",
-  "function graduationStatus(address token) view returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)",
+  "function graduationStatus(address token) view returns (uint256 earned, uint256 threshold, bool graduated)",
 ]);
 
 export const finchLockerAbi = parseAbi([

@@ -116,15 +116,12 @@ export async function getTokenDetail(token, factoryAddress) {
           escrowedWeth: launched.escrowedWeth?.toString() ?? "0",
         }
       : null,
-    // Protocol-controlled traction accounting: WETH fees the locker has actually paid out
-    // for this token. Unlike `graduation` below (a pool-balance read, cosmetic), this cannot
-    // be moved by donating to the pool — only real swap fees advance it.
-    traction: known && launched.lifetimeWethFees !== undefined
-      ? { lifetimeWethFees: launched.lifetimeWethFees.toString() }
-      : null,
+    // One metric for both the progress bar and the fee bonus: lifetime WETH fees the locker
+    // has actually paid out for this token. Protocol-controlled accounting — donating WETH to
+    // the pool cannot move it, so visible "traction" can't be faked either.
     graduation: graduation
       ? {
-          pairedPrincipalEth: Number(formatEther(graduation[0])),
+          earnedFeesEth: Number(formatEther(graduation[0])),
           thresholdEth: Number(formatEther(graduation[1])),
           graduated: graduation[2],
           progress: graduation[1] > 0n ? Number((graduation[0] * 10000n) / graduation[1]) / 10000 : 0,
