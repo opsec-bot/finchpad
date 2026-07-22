@@ -19,6 +19,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # test/abiSync.test.js pins the frontend ABIs against the compiled contracts, so the
+      # artifacts have to exist or that check silently skips — which is exactly the failure
+      # mode it exists to prevent.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: forge build
+        working-directory: contracts
       - run: npm ci
       - run: npm test
 
