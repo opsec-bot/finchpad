@@ -21,7 +21,7 @@ import {ISwapRouter02, IWETH} from "../src/interfaces/IUniswapV3.sol";
  * against: launch a token, watch it hit a real pool, trade it, collect fees — locally, free,
  * with no mainnet risk.
  *
- * Run via scripts/dev-seed.sh (boots against http://localhost:8545).
+ * Run via `npm run dev:seed` (boots against http://localhost:8545).
  */
 contract SeedLocal is Script {
     address constant POSITION_MANAGER = 0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3;

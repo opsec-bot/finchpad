@@ -7,8 +7,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "api": "npm run web:build --silent && node --env-file=.env src/backend/api.js",
-    "dev:fork": "bash scripts/dev-fork.sh",
-    "dev:seed": "bash scripts/dev-seed.sh",
+    "dev:fork": "node scripts/dev-fork.mjs",
+    "dev:seed": "node scripts/dev-seed.mjs",
     "index:backfill": "node --env-file=.env src/indexer/backfill.js",
     "index:swaps": "node --env-file=.env src/indexer/swaps.js",
     "verify:reference": "node --env-file=.env src/indexer/verifyReference.js",

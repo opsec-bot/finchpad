@@ -142,6 +142,23 @@ contracts exist — point it at a local deployment via `npm run dev:fork` + `npm
 
 ## Local development
 
+The launch flow needs Uniswap V3, and Robinhood's testnet does not have it — so local
+development runs against an **anvil fork of mainnet**: real Uniswap periphery, fake money.
+
+```bash
+npm run dev:fork     # terminal 1: anvil forking chain 4663 on :8545 (leave running)
+npm run dev:seed     # terminal 2: deploys finchpad + seeds 4 tokens and real trades
+```
+
+`dev:seed` prints the exact command to point the API at the fork. **Use it verbatim** —
+in particular `FINCHPAD_MIN_BLOCK`, which is not optional: anvil proxies `eth_getLogs` for
+pre-fork blocks to the upstream RPC, and Alchemy's free tier rejects any range wider than 10
+blocks, so a scan crossing the fork base fails and the launch list comes back empty. Pinning
+the floor to the fork base keeps every scan inside local blocks.
+
+Both scripts are Node, not shell, so they run on Windows too (`npm run` there shells to cmd,
+where `bash` resolves to the WSL relay rather than Git Bash).
+
 Robinhood's testnet (46630) has no Uniswap V3 deployed, so the launch flow can't run there.
 The dev scripts fork mainnet instead, giving the real Uniswap periphery with fake money:
 

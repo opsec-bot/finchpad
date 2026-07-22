@@ -138,14 +138,26 @@ export async function getRecentLaunches({ factoryAddress, blocks = 5000n, chunkS
   // Query BOTH launch-event shapes: pons' TokenLaunched and finchpad's Launched. One
   // indexer then serves either factory with no configuration, which is what we want while
   // finchpad reads pons data for comparison.
-  const [ponsLogs, finchLogs] = await Promise.all([
-    getLogsChunked({ address: factoryAddress, event: TOKEN_LAUNCHED, fromBlock, toBlock: latest, chunkSize }).catch(
-      () => []
-    ),
-    getLogsChunked({ address: factoryAddress, event: FINCH_LAUNCHED, fromBlock, toBlock: latest, chunkSize }).catch(
-      () => []
-    ),
+  //
+  // Each shape is allowed to fail on its own — a finchpad factory has no pons events and
+  // vice versa. But if BOTH fail the scan itself is broken, and returning [] would report
+  // "no launches" for what is actually an RPC error. That exact case cost real debugging
+  // time on an anvil fork: anvil proxies pre-fork eth_getLogs upstream, Alchemy's free tier
+  // rejects ranges wider than 10 blocks, and the launch list silently came back empty.
+  // Set FINCHPAD_MIN_BLOCK to the fork base block to keep scans inside local blocks.
+  const [pons, finch] = await Promise.allSettled([
+    getLogsChunked({ address: factoryAddress, event: TOKEN_LAUNCHED, fromBlock, toBlock: latest, chunkSize }),
+    getLogsChunked({ address: factoryAddress, event: FINCH_LAUNCHED, fromBlock, toBlock: latest, chunkSize }),
   ]);
+  if (pons.status === "rejected" && finch.status === "rejected") {
+    const why = pons.reason?.shortMessage || pons.reason?.message || "unknown error";
+    throw new Error(
+      `launch scan failed over blocks ${fromBlock}-${latest}: ${why}` +
+        " (on a local fork, set FINCHPAD_MIN_BLOCK to the fork base block)"
+    );
+  }
+  const ponsLogs = pons.status === "fulfilled" ? pons.value : [];
+  const finchLogs = finch.status === "fulfilled" ? finch.value : [];
 
   const norm = (l, isFinch) => ({
     token: l.args.token,
