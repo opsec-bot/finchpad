@@ -9,7 +9,11 @@ import { defineChain } from "viem";
  * anti-snipe window (see docs/robinhood-chain-reference.md).
  */
 export const robinhoodChain = defineChain({
-  id: 4663,
+  // 4663 in production. Overridable because MetaMask has a built-in entry for 4663 and
+  // pins its own public RPC to that id, so a local fork on 4663 shows a 0 balance in the
+  // wallet however you configure it. Run the fork on another id (FORK_CHAIN_ID=31337) and
+  // set this to match, and MetaMask treats it as a fresh network with only your RPC.
+  id: Number(import.meta.env.VITE_CHAIN_ID ?? 4663),
   name: "Robinhood Chain",
   network: "robinhood",
   nativeCurrency: { decimals: 18, name: "Ether", symbol: "ETH" },

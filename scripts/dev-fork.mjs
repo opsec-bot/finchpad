@@ -18,15 +18,21 @@ loadEnv();
 // Prefer Alchemy if configured: the public RPC rate-limits under a fork's request volume,
 // and now also serves Cloudflare challenges to some clients.
 const forkRpc = process.env.ALCHEMY_RH_MAINNET || "https://rpc.mainnet.chain.robinhood.com";
+// Chain id the LOCAL node reports. Defaults to 4663 so it mirrors mainnet, but MetaMask
+// ships a built-in entry for 4663 and will keep its own public RPC for that id — so a
+// wallet reads a 0 balance no matter what RPC you hand it. Setting FORK_CHAIN_ID (31337 is
+// conventional) makes MetaMask treat it as a brand-new network with only your localhost RPC.
+// The frontend must agree: set VITE_CHAIN_ID to the same value.
+const chainId = process.env.FORK_CHAIN_ID || "4663";
 const redacted = forkRpc.replace(/\/v2\/.*$/, "/v2/***");
 
-console.log("forking Robinhood Chain mainnet (4663) -> http://localhost:8545");
+console.log(`forking Robinhood Chain mainnet -> http://localhost:8545 (local chain id ${chainId})`);
 console.log(`rpc: ${redacted}`);
 
 const anvil = foundryBin("anvil");
 const child = spawn(
   anvil,
-  ["--fork-url", forkRpc, "--chain-id", "4663", "--port", "8545", "--accounts", "5", "--balance", "10000"],
+  ["--fork-url", forkRpc, "--chain-id", chainId, "--port", "8545", "--accounts", "5", "--balance", "10000"],
   { stdio: "inherit" },
 );
 
