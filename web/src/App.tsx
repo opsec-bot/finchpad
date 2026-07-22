@@ -3,6 +3,7 @@ import { WalletButton } from "./components/Wallet";
 import Explore from "./routes/Explore";
 import Launch from "./routes/Launch";
 import { api } from "./lib/api";
+import { robinhoodChain } from "./lib/chain";
 
 type Tab = "explore" | "launch";
 
@@ -22,7 +23,7 @@ export default function App() {
     <>
       <header>
         <h1>finchpad</h1>
-        <span className="dim">launchpad on Robinhood Chain (4663)</span>
+        <span className="dim">launchpad on Robinhood Chain ({robinhoodChain.id})</span>
         <nav>
           <button onClick={() => setTab("explore")} disabled={tab === "explore"}>
             explore

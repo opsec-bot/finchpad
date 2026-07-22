@@ -25,14 +25,6 @@ export const robinhoodChain = defineChain({
   },
 });
 
-/** Local anvil fork of mainnet — what `npm run dev:fork` + `npm run dev:seed` stand up. */
-export const localFork = defineChain({
-  ...robinhoodChain,
-  id: 4663,
-  name: "Robinhood Chain (local fork)",
-  rpcUrls: { default: { http: ["http://localhost:8545"] } },
-});
-
 /** Mainnet Uniswap V3 periphery + the finchpad deployment, all overridable per environment. */
 export const addresses = {
   weth: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",

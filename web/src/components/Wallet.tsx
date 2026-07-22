@@ -39,7 +39,7 @@ export function WalletButton() {
             );
           }}
         >
-          switch to chain 4663
+          switch to chain {robinhoodChain.id}
         </button>
       )}
       {switchErr && <span className="warn">{switchErr}</span>}
