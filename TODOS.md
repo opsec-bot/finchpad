@@ -31,11 +31,16 @@ work, no code): scheduled for tomorrow.
 ## Marketing / distribution — GeckoTerminal DEX/chain listing (added 2026-07-22)
 
 Surfaced via a Discord DM (a launchpad-partnerships contact, "Tim", asked what finchpad offers
-and what would help him decide — reply was to send docs + socials; @finchpad is the
-Twitter/Telegram handle, ~2 weeks old). Separately worth doing regardless of that thread:
-apply at https://about.geckoterminal.com/dex-chain-listing to get finchpad pools discoverable
+and what would help him decide — reply was to send docs + socials; ~2 weeks old project).
+Separately worth doing regardless of that thread: apply at
+https://about.geckoterminal.com/dex-chain-listing to get finchpad pools discoverable
 (price/chart aggregators are a standard discovery channel for new launchpads, same as
 DexScreener-style indexing the contracts already emit events for).
+
+**Socials/contact (for the listing form and any partnership DMs):**
+- Twitter/X: `@finchpad`
+- Telegram channel: `@finchpad`
+- Telegram support (personal): `@pickledev`
 
 - [ ] **Submit the GeckoTerminal listing form** (Google Form via the page's "Get Listed"
       button). Choose **Express Listing** (~7 days) over Regular (~3 months) given the launch
@@ -52,7 +57,8 @@ DexScreener-style indexing the contracts already emit events for).
       gate above); the form needs a real deployed factory/pool to point at, so this can't
       actually be submitted until after Phase 5 + the mainnet launch.
 - [ ] Have docs + socials ready to send when asked (partnership DMs are already asking for
-      this): README, PLAN.md, @finchpad on Twitter/Telegram, docs/ folder.
+      this): README, PLAN.md, `@finchpad` on Twitter/Telegram, `@pickledev` for support
+      contact, docs/ folder.
 
 ## SAVED FOR LATER — "claim fees" flow (creator-facing, not built)
 
