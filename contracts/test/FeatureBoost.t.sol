@@ -13,10 +13,10 @@ contract FeatureBoostTest is Test {
     address token = makeAddr("token");
 
     uint256 constant PRICE_PER_DAY = 0.01 ether;
-    uint256 constant VERIFY_PRICE = 0.05 ether;
+    uint256 constant BOOST_PRICE = 0.05 ether;
 
     function setUp() public {
-        boost = new FeatureBoost(feeRecipient, admin, PRICE_PER_DAY, VERIFY_PRICE);
+        boost = new FeatureBoost(feeRecipient, admin, PRICE_PER_DAY, BOOST_PRICE);
         vm.deal(payer, 100 ether);
     }
 
@@ -66,18 +66,18 @@ contract FeatureBoostTest is Test {
         boost.feature{value: PRICE_PER_DAY - 1}(token, 1);
     }
 
-    function test_verify_setsBadgeAndPays() public {
+    function test_boost_setsBadgeAndPays() public {
         vm.prank(payer);
-        boost.verify{value: VERIFY_PRICE}(token);
-        assertTrue(boost.verified(token), "verified");
-        assertEq(feeRecipient.balance, VERIFY_PRICE, "recipient paid");
+        boost.boost{value: BOOST_PRICE}(token);
+        assertTrue(boost.boosted(token), "boosted");
+        assertEq(feeRecipient.balance, BOOST_PRICE, "recipient paid");
     }
 
-    function test_verify_revertsOnDoubleVerify() public {
+    function test_boost_revertsOnDoubleBoost() public {
         vm.startPrank(payer);
-        boost.verify{value: VERIFY_PRICE}(token);
-        vm.expectRevert(FeatureBoost.AlreadyVerified.selector);
-        boost.verify{value: VERIFY_PRICE}(token);
+        boost.boost{value: BOOST_PRICE}(token);
+        vm.expectRevert(FeatureBoost.AlreadyBoosted.selector);
+        boost.boost{value: BOOST_PRICE}(token);
         vm.stopPrank();
     }
 
@@ -88,7 +88,7 @@ contract FeatureBoostTest is Test {
         vm.prank(admin);
         boost.setPrices(0.02 ether, 0.1 ether);
         assertEq(boost.pricePerDay(), 0.02 ether);
-        assertEq(boost.verifyPrice(), 0.1 ether);
+        assertEq(boost.boostPrice(), 0.1 ether);
     }
 
     function test_setAdmin_onlyAdmin() public {

@@ -47,7 +47,7 @@ holders a share of revenue (so they stay clear of dividend/security questions):
   latches a token past the threshold, its protocol share drops (default 20% → 15%), the freed
   bps going to the creator. Rewards successful tokens and gamifies pushing volume to the line.
 - **Featured placement** (`FeatureBoost`) — pay ETH to feature a token in the UI for N days or
-  buy a one-time verified badge. Standalone contract, pure advertising margin to the treasury,
+  buy a one-time "boosted" badge. Standalone contract, pure advertising margin to the treasury,
   never touches the fee path.
 
 The referral rate and graduation bonus are locker-level deploy dials (`referralShareBps`,
@@ -68,7 +68,7 @@ The referral rate and graduation bonus are locker-level deploy dials (`referralS
   trusted signer key).
 - `FinchLock` — Streamflow-style locking + vesting for any ERC-20 (cliff/linear). The
   anti-rug primitive: a creator locking their own allocation is a verifiable "I can't dump."
-- `FeatureBoost` — standalone paid featured-placement + verified-badge contract (see
+- `FeatureBoost` — standalone paid featured-placement + "boosted"-badge contract (see
   Revenue & growth above). Not wired into the factory or locker.
 
 Tests cover unit, fuzz (`Fuzz.t.sol`), a claim-digest cross-check, and mainnet-fork launch/

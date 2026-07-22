@@ -81,9 +81,9 @@ contract SeedLocal is Script {
         _buy(d, 0.02 ether);
         _buy(a, 0.25 ether); // second trade so charts have more than one candle point
 
-        // Advertising: feature GENESIS for 7 days and buy DFINCH a verified badge.
+        // Advertising: feature GENESIS for 7 days and buy DFINCH a "boosted" badge.
         featureBoost.feature{value: 0.07 ether}(a, 7);
-        featureBoost.verify{value: 0.05 ether}(b);
+        featureBoost.boost{value: 0.05 ether}(b);
 
         vm.stopBroadcast();
 
@@ -95,7 +95,7 @@ contract SeedLocal is Script {
         console.log("FinchLock:         ", address(lockVault));
         console.log("FeatureBoost:      ", address(featureBoost));
         console.log("token GENESIS:     ", a, "(featured 7d)");
-        console.log("token DFINCH:      ", b, "(referred by 0xBEEF, verified badge)");
+        console.log("token DFINCH:      ", b, "(referred by 0xBEEF, boosted badge)");
         console.log("token REPO:        ", c, "(repo id 123456789, fees escrow until claim)");
         console.log("token DEVC:        ", d, "(user id 987654321, fees escrow until claim)");
         console.log("");

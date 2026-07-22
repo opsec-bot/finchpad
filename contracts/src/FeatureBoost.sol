@@ -6,10 +6,15 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /**
  * @title FeatureBoost
  * @notice Paid promotion for launched tokens: pay ETH to feature a token in the finchpad UI
- *         for a number of days, or pay a one-time fee for a "verified" badge. This is pure
+ *         for a number of days, or pay a one-time fee for a permanent "boosted" badge. This
+ *         is pure
  *         advertising revenue — it never touches trading fees, fee splits, or who controls a
- *         token. Ranking is off-chain: the indexer reads the `Featured`/`Verified` events and
- *         the `featuredUntil`/`verified` mappings, and the frontend surfaces active ones.
+ *         token. Ranking is off-chain: the indexer reads the `Featured`/`Boosted` events and
+ *         the `featuredUntil`/`boosted` mappings, and the frontend surfaces active ones.
+ *
+ * Naming: the badge is "boosted", never "verified". It is bought, not earned — anyone can
+ * buy it for any token, including their own. Calling it verified would read to users as
+ * vetted-by-finchpad, which is exactly the false assurance a scam-spam pad must not sell.
  *
  * Deliberately standalone: it is NOT wired into the factory or locker, so it can ship (and be
  * priced/retired) without any risk to the fee-collection path.
@@ -25,22 +30,22 @@ contract FeatureBoost is ReentrancyGuard {
     address public immutable feeRecipient;
     address public admin;
     uint256 public pricePerDay;
-    uint256 public verifyPrice;
+    uint256 public boostPrice;
 
     /// @notice Unix timestamp a token is featured until. Featured iff this is in the future.
     mapping(address token => uint64 until) public featuredUntil;
-    /// @notice One-time verified badge. Once true, stays true.
-    mapping(address token => bool isVerified) public verified;
+    /// @notice One-time paid "boosted" badge. Once true, stays true.
+    mapping(address token => bool isBoosted) public boosted;
 
     event Featured(address indexed token, address indexed payer, uint64 until, uint256 paid);
-    event Verified(address indexed token, address indexed payer, uint256 paid);
-    event PriceChanged(uint256 pricePerDay, uint256 verifyPrice);
+    event Boosted(address indexed token, address indexed payer, uint256 paid);
+    event PriceChanged(uint256 pricePerDay, uint256 boostPrice);
     event AdminChanged(address indexed admin);
 
     error ZeroAddress();
     error ZeroDays();
     error InsufficientPayment();
-    error AlreadyVerified();
+    error AlreadyBoosted();
     error NotAdmin();
     error PayoutFailed();
     error RefundFailed();
@@ -50,12 +55,12 @@ contract FeatureBoost is ReentrancyGuard {
         _;
     }
 
-    constructor(address feeRecipient_, address admin_, uint256 pricePerDay_, uint256 verifyPrice_) {
+    constructor(address feeRecipient_, address admin_, uint256 pricePerDay_, uint256 boostPrice_) {
         if (feeRecipient_ == address(0) || admin_ == address(0)) revert ZeroAddress();
         feeRecipient = feeRecipient_;
         admin = admin_;
         pricePerDay = pricePerDay_;
-        verifyPrice = verifyPrice_;
+        boostPrice = boostPrice_;
     }
 
     /**
@@ -76,16 +81,16 @@ contract FeatureBoost is ReentrancyGuard {
         emit Featured(token, msg.sender, newUntil, cost);
     }
 
-    /// @notice One-time paid verified badge for `token`. Overpayment is refunded.
-    function verify(address token) external payable nonReentrant {
+    /// @notice One-time paid "boosted" badge for `token`. Overpayment is refunded.
+    function boost(address token) external payable nonReentrant {
         if (token == address(0)) revert ZeroAddress();
-        if (verified[token]) revert AlreadyVerified();
-        if (msg.value < verifyPrice) revert InsufficientPayment();
+        if (boosted[token]) revert AlreadyBoosted();
+        if (msg.value < boostPrice) revert InsufficientPayment();
 
-        verified[token] = true;
+        boosted[token] = true;
 
-        _settle(verifyPrice);
-        emit Verified(token, msg.sender, verifyPrice);
+        _settle(boostPrice);
+        emit Boosted(token, msg.sender, boostPrice);
     }
 
     /// @notice True iff the token's featured window has not yet elapsed.
@@ -107,10 +112,10 @@ contract FeatureBoost is ReentrancyGuard {
 
     // --- admin ---
 
-    function setPrices(uint256 pricePerDay_, uint256 verifyPrice_) external onlyAdmin {
+    function setPrices(uint256 pricePerDay_, uint256 boostPrice_) external onlyAdmin {
         pricePerDay = pricePerDay_;
-        verifyPrice = verifyPrice_;
-        emit PriceChanged(pricePerDay_, verifyPrice_);
+        boostPrice = boostPrice_;
+        emit PriceChanged(pricePerDay_, boostPrice_);
     }
 
     function setAdmin(address admin_) external onlyAdmin {
