@@ -19,11 +19,17 @@ the referrer amounts, unused-return in markGraduated).
       `Graduated(token, lifetimeWethFees)` still fires once for chart markers. 87 Foundry +
       35 JS green, incl. a fuzz property that the accumulator advances by exactly the
       collected WETH and never by donations or token-side fees.
-- [ ] **Decide: point the UI progress bar at the honest number.** The factory's
-      `graduationStatus()` is untouched and still reads the pool balance — now purely
-      cosmetic (no money depends on it), but a donation can still fake visible "traction" to
-      lure buyers. Either drive the bar from `graduationOf()` (one honest number) or accept
-      it as decorative. One-line frontend change.
+- [x] **Progress bar and fee bonus now use ONE metric.** `FinchFactory.graduationStatus()`
+      no longer reads the pool balance — it delegates to the locker's accounting, so a
+      donation moves neither the money path nor the visible bar (which could otherwise fake
+      traction to lure buyers). `GRADUATION_THRESHOLD` (4.2 ether) deleted from the factory;
+      the threshold lives in the locker, one source of truth. API/UI follow
+      (`graduation.earnedFeesEth`, bar labelled "fees earned"); the redundant `traction`
+      field is gone; the pons factory ABI is untouched. Fork-verified against live Uniswap:
+      a 0.05 WETH buy alone moves progress 0, then collect() steps it to 0.0005 WETH
+      (exactly the 1% fee), with factory and locker asserted equal.
+      Tradeoff: the bar steps on each collect() rather than sliding per trade. collect() is
+      permissionless so the UI or a keeper can poke it, and creators call it to get paid.
 - [x] **Renamed the paid badge to "boosted"** (your call, done on the branch). Anyone can
       buy it for any token including their own scam, so "verified" would have read as
       "vetted by finchpad" — the exact false assurance an anti-scam-spam pad must not sell.
