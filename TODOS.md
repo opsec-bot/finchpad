@@ -263,8 +263,8 @@ the referrer amounts, unused-return in markGraduated).
       OAuth flow (typed-in payout wallet until wallet-connect lands).
 - [x] PR #1 security fixes ported to master (XSS escapes incl. error messages, API param
       clamps); PR closed. Dependabot #2/#4/#5 merged, #3 applied manually (conflict).
-- [ ] Wallet connect + submit claimGithub() tx from the returned signature.
-- [ ] Launch / trade / lock / burn / CTO flows. No blind-signing.
+- [x] Wallet connect (Privy), launch flow, and the full trading experience — all shipped.
+- [ ] Remaining flows: lock, burn, CTO request, and the creator-facing claim-fees menu.
 
 ## Needs the user (blocking next steps)
 
@@ -281,8 +281,9 @@ the referrer amounts, unused-return in markGraduated).
 - [x] **graduationStatus(token)** on the factory: returns (pairedPrincipal, threshold,
       graduated). Threshold 4.2 ETH. Fork-tested with a REAL buy through the live Uniswap
       router (0.05 WETH → 46.08M tokens, ~1.09 ETH implied mcap — curve A confirmed working).
-- [ ] **Anvil mainnet-fork rehearsal env**: script to run a local fork + deploy + launch, so
-      the frontend (Phase 3) has a real environment to point at (no live testnet with Uniswap).
+- [x] **Anvil mainnet-fork rehearsal env — DONE.** `npm run dev` boots the fork, seeds it,
+      writes .env, builds the frontend and starts the API in one command.
+
 
 ## Phase 2 infra progress
 
@@ -340,12 +341,9 @@ the referrer amounts, unused-return in markGraduated).
 
 ## Contract-design decisions from the Arbitrum/Robinhood findings
 
-- [ ] **block.number semantics (launch protection).** RH Chain is Arbitrum: `block.number`
-      is the L1 block estimate, advancing ~every 12s, NOT per L2 block. So `restrictionBlocks`
-      is measured in ~12s units, not L2 blocks. This is SAFE (variance only extends
-      protection) and matches pons. Decide: keep `block.number` (recommended, time-granular,
-      pons-consistent) vs switch to `ArbSys.arbBlockNumber()` for per-L2-block precision.
-      See docs/robinhood-chain-reference.md.
+- [x] **block.number semantics — MOOT.** Launch protection was removed entirely, so nothing
+      depends on block.number any more. It survives only as an informational `launchBlock`.
+
 
 ## Resolved
 
@@ -362,9 +360,9 @@ the referrer amounts, unused-return in markGraduated).
 
 ## Deferred (tracked, not now)
 
-- [ ] **Initial buy in the launch tx.** pons lets the creator buy in the same tx as launch.
-      v1 skips it; creator can buy in a follow-up tx (launch protection already allows only
-      the creator on the launch block). Add a router swap in `launch()` later.
+- [x] **Initial buy in the launch tx — SHIPPED (R2).** `creatorBuyAmount` in LaunchParams,
+      routed through the public router at AMM price.
+
 - [ ] **FINCH buyback-burn keeper.** Locker routes protocol fees to `protocolFeeRecipient`;
       the buyback+burn runs downstream (TWAP keeper/contract), not in fee collection. Build
       the keeper. Launch FINCH through finchpad itself to give the buyback a market.
@@ -409,7 +407,7 @@ Worth doing because it's free infrastructure we're currently not using at all.
 
 ## Phase 3 website (not started)
 
-- [ ] Launch / trade / token page / lock / burn / claim / CTO flows. No blind-signing.
+- [x] Launch, token page and trading shipped. Remaining: lock, burn, claim, CTO.
 
 ## Phase 5 security gate (before mainnet)
 
