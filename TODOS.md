@@ -28,6 +28,32 @@ work, no code): scheduled for tomorrow.
             commands become Safe transactions (Safe UI or safe-cli) — re-time the "<1 hour
             containment" target against how fast a 2-of-3 can actually sign.
 
+## Marketing / distribution — GeckoTerminal DEX/chain listing (added 2026-07-22)
+
+Surfaced via a Discord DM (a launchpad-partnerships contact, "Tim", asked what finchpad offers
+and what would help him decide — reply was to send docs + socials; @finchpad is the
+Twitter/Telegram handle, ~2 weeks old). Separately worth doing regardless of that thread:
+apply at https://about.geckoterminal.com/dex-chain-listing to get finchpad pools discoverable
+(price/chart aggregators are a standard discovery channel for new launchpads, same as
+DexScreener-style indexing the contracts already emit events for).
+
+- [ ] **Submit the GeckoTerminal listing form** (Google Form via the page's "Get Listed"
+      button). Choose **Express Listing** (~7 days) over Regular (~3 months) given the launch
+      timeline.
+- [ ] **Check whether Robinhood Chain (4663) + its Uniswap V3 deployment are already listed**
+      before assuming this is a from-scratch chain application — finchpad launches trade
+      through the SAME shared Uniswap V3 factory/router pons already uses on this chain
+      (`PONS.v3Factory` / `swapRouter` in `src/lib/contracts.js`:
+      `0x1f7d7550B1b028f7571E69A784071F0205FD2EfA` / `0xCaf681a66D020601342297493863E78C959E5cb2`,
+      WETH `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`). If pons already has GeckoTerminal
+      volume, the chain/DEX pairing may already exist and this is just adding finchpad as
+      another project trading through it, not a new listing.
+- [ ] **Blocked on mainnet deploy** — no live finchpad pools exist yet (see "Mainnet deploy"
+      gate above); the form needs a real deployed factory/pool to point at, so this can't
+      actually be submitted until after Phase 5 + the mainnet launch.
+- [ ] Have docs + socials ready to send when asked (partnership DMs are already asking for
+      this): README, PLAN.md, @finchpad on Twitter/Telegram, docs/ folder.
+
 ## SAVED FOR LATER — "claim fees" flow (creator-facing, not built)
 
 The piece that makes GitHub-bound launches usable end to end. Today a creator can only claim
