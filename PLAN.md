@@ -1,4 +1,6 @@
-<!-- finchpad build plan. Draft 1, 2026-07-21. Awaiting review pass. -->
+<!-- finchpad build plan. Written 2026-07-21, revised 2026-07-22.
+     Historical intent + resolved decisions. Live status lives at the bottom; day-to-day
+     work is in TODOS.md. -->
 
 # finchpad build plan
 
@@ -36,7 +38,7 @@ The indexer read layer already works against live chain state.
 
 - `src/lib/` chain client, pons addresses + ABIs, chunked `getLogs`.
 - `verifyReference.js` reads the known graduated PONS token end-to-end. 9/9 checks pass.
-- `backfill.js` pulled 93 real launches from the last 5k blocks in 0.8s.
+- `backfill.js` pulled 93 real tokens from the last 5k blocks in 0.8s.
 
 This proves the event shapes and read paths. finchpad's factory will emit a
 `TokenLaunched` event matching the pons shape so this indexer keeps working unchanged.
@@ -45,27 +47,24 @@ This proves the event shapes and read paths. finchpad's factory will emit a
 
 ## Phase 1: Contracts
 
-Tooling: Foundry. `forge` is NOT installed yet. Install is step one.
-Target testnet 46630 first, mainnet 4663 only after the security gate.
+Tooling: Foundry. Mainnet 4663 only, after the security gate — Robinhood's testnet has no
+Uniswap V3, so the launch flow cannot run there at all (see the resolved decisions below).
 
-Four contracts. All immutable once deployed (pons ships new versions as new addresses,
+Six contracts. All immutable once deployed (pons ships new versions as new addresses,
 we do the same).
 
 ### 1a. FinchToken (ERC-20, fixed 1e9 supply)
 - Self-describing on-chain: `name`, `symbol`, `logo`, `description`, `liquidityPool`,
-  `socials(twitter, telegram, discord, website, farcaster)`. Matches pons so the
-  indexer reads it with the same ABI.
-- Launch protection (anti-snipe), copied from pons behavior:
-  - launch block: only the creator's initial buy executes
-  - next 2 blocks: max 5% supply held per wallet, max 5.5% bought per wallet
-  - sells and wallet-to-wallet transfers never restricted
-  - all limits end at `restrictionsEndBlock`
+  `socials(twitter, telegram, discord, website, farcaster)` — the struct keeps pons' shape so
+  the indexer reads it with the same ABI, though the UI only collects X, Telegram and website.
+- **No launch protection.** Removed 2026-07-22: the caps punished real buyers as often as
+  bots, and their reverts surfaced through Uniswap as an opaque `TF` indistinguishable from a
+  broken pool. A token that *can* restrict transfers is one users must trust not to — the
+  stronger claim is that no such code path exists. Creators get a fair entry through the
+  optional atomic opening buy in `launch()` instead, at ordinary AMM price.
 - **Holder burns (pump.fun-style)**: extends OpenZeppelin `ERC20Burnable`, so any holder
   can call `burn(amount)` to destroy their own tokens and reduce total supply for real (no
-  dead-address fudge). This is the per-token trust/hype flex ("dev burned 30%"), distinct
-  from the protocol FINCH buyback-burn. Contract detail: the launch-protection hook MUST
-  exempt transfers to `address(0)`, or a burn inside the anti-snipe window trips the
-  wallet-cap check. "Fixed supply" means no MINT function; burning down is allowed.
+  dead-address fudge). "Fixed supply" means no MINT function; burning down is allowed.
 - Deployed via EIP-1167 minimal proxy (`Clones.clone`) to cut per-launch gas ~90%.
   This matters: the active pons pad did 42,709 launches in a day.
 
@@ -78,17 +77,19 @@ we do the same).
   90/10 forever). One-way door.
 - 0.0005 ETH launch fee.
 - Emits `TokenLaunched(token, deployer, dexFactory, pairToken, pool, dexId,
-  launchConfigId, positionId, restrictionsEndBlock, initialBuyAmount)` matching pons.
+  launchConfigId, positionId, initialBuyAmount)`.
 - Reads: `getLaunchedToken(token)`, `graduationStatus(token)`, `locker()`.
-- Graduation at 4.2 ETH paired is a progress marker only. Trading never moves pools.
+- Graduation is derived from the locker's lifetime collected WETH fees, not a pool balance.
+  Trading never moves pools.
 
 ### 1c. FinchLocker
 - Holds the LP position NFTs. Liquidity is locked, cannot be pulled.
 - `collect(token)` harvests V3 trading fees (accrue in both token and WETH).
 - Distributes per the snapshotted split: creator share to the payout wallet, protocol
   share to the protocol recipient.
-- `setFeeRedirect(token, wallet)` changes the creator payout wallet. GATED by the
-  registry (see 1d), not open to the locker admin alone.
+- `setControl(token, controller, feeWallet)` changes the creator payout wallet. GATED by the
+  registry (see 1d), not open to the locker admin alone. The fee wallet may also be set
+  directly at launch, so fees never briefly point at the launcher first.
 
 ### 1d. FeeRightsRegistry (the finchpad addition)
 - Owns the authorization for "who may redirect fees for token X."
@@ -191,8 +192,7 @@ their own allocation on a public schedule is a credible "I can't dump on you" si
 - **Foundry unit + fuzz/invariant tests**: pool math, launch-protection caps, fee-split
   immutability, locker distribution accounting, registry authorization, EIP-712 replay,
   FinchLock vesting math (nothing releasable before cliff, total released never exceeds
-  locked), holder burn (reduces total supply, allowed during the anti-snipe window because
-  `address(0)` is exempt).
+  locked), holder burn (reduces total supply).
 - **Fork tests** against Robinhood testnet 46630, plus a mainnet 4663 fork for realistic
   Uniswap V3 periphery (position manager, router, quoter).
 - **anvil** local chain for fast iteration.
@@ -274,36 +274,26 @@ mainnet with real money. This is a Phase 5 gate item, not a someday item.
 
 ---
 
-## Status
+## Status (2026-07-22)
 
-Foundry 1.7.1 (`~/.foundry/bin`), OpenZeppelin 5.6.1, solc 0.8.30 / optimizer 300 /
-`via_ir`. **Entire contract layer built and tested: 44/44 Foundry tests green**, including
-a full launch against the real Robinhood Chain Uniswap V3 periphery on a mainnet fork.
+**Contracts** — complete and green: 90 Foundry tests including fuzz properties and fork tests
+against live Uniswap. `FinchToken` is a plain `ERC20Burnable`. `launch()` optionally executes
+an atomic opening buy through the public router at ordinary AMM price, and takes the fee
+wallet as a parameter so fees never briefly point at the launcher. Graduation is derived from
+the locker's own fee accounting, so it cannot be faked by donating to a pool. Slither clean at
+`fail-on: medium`. **Never deployed anywhere.**
 
-| Contract | What | Tests |
-|---|---|---|
-| FinchToken | fixed 1e9, ERC20Burnable holder burns, self-describing, launch protection | 14 |
-| FinchLocker | holds locked LP, collects + splits fees, gated fee-rights control | 7 |
-| FeeRightsRegistry | creator redirect / handoff / admin CTO / EIP-712 GitHub claim | 12 |
-| FinchLock | any-ERC20 cliff/linear vesting, fee-on-transfer safe | 9 |
-| Fork (smoke + full launch) | real V3 periphery: clone → pool → single-sided LP → lock, at the curve-A price | 2 |
-| launchCurve.js (JS) | curve A math: target mcap → sqrtPrice + single-sided ticks | 4 |
+**Backend** — read API, swap/OHLC indexing, holder concentration, GitHub OAuth + EIP-712 claim
+signer (cross-pinned against the contract), GitHub name→id resolution, ETH/USD. Still reads
+live off-chain: `schema.sql` exists but nothing writes to it, which blocks analytics.
 
-**49 tests green** (45 Foundry + 4 JS). Launch curve = **A (degen/fair-launch)** confirmed:
-~1 ETH implied start mcap, 4.2 ETH graduation marker. The fork test launches a real curve-A
-token against live Uniswap AND executes a real buy through the router (0.05 WETH bought
-46.08M tokens ≈ 1.09 ETH implied mcap — curve A behaving exactly as designed).
-`graduationStatus()` is live. Deploy script at `contracts/script/Deploy.s.sol` (key at runtime).
+**Frontend** — Vite + React with Privy. Launch and full trading (quotes, slippage, price
+impact, charts, transparency panel) work end to end against a forked chain from a browser.
+Not built: claim-fees menu, lock, burn, CTO request.
 
-**Phase 2 started:** swap indexing + OHLC candles working against the live PONS pool (112 real
-trades indexed; last candle close matched the pool's slot0 price exactly). RPC split by
-measurement — Alchemy for reads, public RPC for logs (Alchemy free caps getLogs at 10 blocks).
+**Dev loop** — `npm run dev` boots a fork, deploys, seeds, writes `.env`, builds and serves.
 
-All contracts well under size limits (largest FinchToken 8.3KB vs 96KB chain limit).
+**Not started** — the FINCH buyback-burn keeper, persistence, external audit, legal review,
+admin multisig/timelock, signer key custody. See TODOS.md.
 
-**Not done (needs the user or a later phase):** production launch-curve economics (the fork
-test used plumbing values at tick 0), testnet deploy (needs a funded key + testnet RPC URL),
-initial-buy-in-launch-tx (deferred), Phase 2 infra, Phase 3 website, Phase 5 security gate.
-
-- Indexer read layer built and validated (9/9 reference checks).
 - `codex` not installed (autoplan review runs subagent-only without it).

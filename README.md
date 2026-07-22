@@ -9,7 +9,8 @@ creator fee redirects, token locking/vesting, and buyback-burns.
 - Launch deploys a fixed-supply (1e9) ERC-20 **and** its Uniswap V3 pool in one transaction.
 - Liquidity is locked immediately; the LP position is an NFT held by a locker.
 - Every token trades against WETH at a 1% pool fee. **No bonding curve, no migration.**
-- "Graduation" (default 4.2 ETH paired) is a progress marker only — trading never moves pools.
+- **Graduation** is measured in fees the token has actually earned, not a pool balance — the
+  same number drives the progress bar and the fee discount, and a donation cannot move it.
 - Fee split is snapshotted per token at launch and is immutable afterward.
 
 See [`docs/pons-protocol-reference.md`](docs/pons-protocol-reference.md) for the full scraped
@@ -43,9 +44,11 @@ holders a share of revenue (so they stay clear of dividend/security questions):
 - **Referrals** — a launch may name a `referrer`, who earns a slice of the *protocol* share on
   every trade of that token (default 10% of the 20%, i.e. 2% of a trade). Funded entirely from
   the protocol side; the creator's 80% is never touched. A launcher can't refer themselves.
-- **Graduation rewards** — the 4.2-ETH graduation milestone is now real: once `markGraduated`
-  latches a token past the threshold, its protocol share drops (default 20% → 15%), the freed
-  bps going to the creator. Rewards successful tokens and gamifies pushing volume to the line.
+- **Graduation rewards** — once a token's lifetime collected WETH fees pass the threshold, its
+  protocol share drops (default 20% → 15%), the freed bps going to the creator. Derived from
+  the locker's own accounting rather than latched by a call, so it is monotonic by
+  construction and cannot be faked: donating WETH to the pool does not move it, and gaming it
+  means paying real swap fees — which is the behaviour being rewarded anyway.
 - **Featured placement** (`FeatureBoost`) — pay ETH to feature a token in the UI for N days or
   buy a one-time "boosted" badge. Standalone contract, pure advertising margin to the treasury,
   never touches the fee path.
@@ -56,7 +59,10 @@ The referral rate and graduation bonus are locker-level deploy dials (`referralS
 ## Contracts (`contracts/`, Foundry)
 
 - `FinchToken` — fixed-supply (1e9), self-describing on-chain, holder-burnable, EIP-1167
-  clone with pons-style anti-snipe launch protection.
+  clone. A **plain ERC20Burnable**: no transfer hook, no caps, no launch window. Anti-snipe
+  protection was removed deliberately — it punished real buyers as often as bots, and its
+  reverts surfaced through Uniswap as an opaque `TF` indistinguishable from a broken pool.
+  A token that can restrict transfers is also a token users have to trust not to.
 - `FinchFactory` — one-transaction launch: clone a token, create + initialize its V3 pool,
   deposit the full supply as single-sided liquidity, hand the locked LP to the locker.
   Launch-curve economics are passed in per launch (computed off-chain), not hardcoded.
@@ -88,7 +94,7 @@ forge test --match-path 'test/Fork*.t.sol'   # needs a mainnet fork RPC
 
 - `src/lib/` — chain client, contract addresses + ABIs (pons reference **and** finchpad's
   own), chunked `getLogs`, OHLC aggregation, and read helpers shared by the CLIs and API.
-- `src/backend/api.js` — read-only HTTP API serving the frontend (launches, token detail,
+- `src/backend/api.js` — read-only HTTP API serving the frontend (tokens, token detail,
   price, candles, trades). Reads live off-chain with a TTL cache, so it runs today with no
   database; a Postgres indexer (`schema.sql`) can back it later without changing response
   shapes. Zero HTTP dependencies on purpose — it sits next to a signing key.
@@ -127,18 +133,25 @@ once the contracts ship.
 
 ## Frontend (`web/`)
 
-A Vite + React app: token explorer (launch list, detail, candles, trades, graduation and
-GitHub-claim state) plus the launch flow, with wallet connection via
-[Privy](https://privy.io) — external wallets or an embedded wallet created on login, so
-someone with no wallet can still launch a token.
+A Vite + React app. Wallet connection is [Privy](https://privy.io) — external wallets or an
+embedded wallet created on login, so someone with no wallet can still create a token.
 
-It is a **separate npm package** on purpose. The backend will eventually sit next to a
-signing key, so it keeps a deliberately tiny dependency surface (viem only); React, Vite and
-the wallet stack never enter that process. `npm run api` serves the built output from
-`web/dist` with a CSP, `nosniff`, and an extension-allowlisted asset handler.
+- **Launch** — name, ticker, description, image (uploaded and downscaled in the browser, not
+  a pasted link), socials. Everything else is behind *advanced*: fee rights, fee recipient,
+  an optional opening buy, referrer. The opening curve is fixed, not a field — every finchpad
+  token starts at the same valuation so market cap means something across tokens.
+- **Trade** — buy and sell against the token's V3 pool with live QuoterV2 quotes, slippage
+  (auto / 0.5% / 1% / 3% / custom), price impact, minimum received, and a fee estimate. Buys
+  spend native ETH in one transaction; sells approve then swap-and-unwrap in a multicall, so
+  a seller receives ETH rather than WETH.
+- **Token page** — TradingView candles, recent trades, market cap and volume in USD, plus a
+  transparency panel stating locked liquidity, fixed supply, fee wallet, fee split and GitHub
+  binding — including the unflattering cases, which is the point of it.
 
-Write actions stay disabled until `VITE_FINCH_FACTORY` is set, so nothing is sent before the
-contracts exist — point it at a local deployment via `npm run dev:fork` + `npm run dev:seed`.
+It is a **separate npm package** on purpose: the backend will eventually sit next to a signing
+key, so it keeps a deliberately tiny dependency surface (viem only) and React never enters that
+process. `npm run dev` serves the built output with a CSP and an extension-allowlisted asset
+handler.
 
 ## Local development
 
@@ -146,8 +159,21 @@ The launch flow needs Uniswap V3, and Robinhood's testnet does not have it — s
 development runs against an **anvil fork of mainnet**: real Uniswap periphery, fake money.
 
 ```bash
-npm run dev:fork     # terminal 1: anvil forking chain 4663 on :8545 (leave running)
-npm run dev:seed     # terminal 2: deploys finchpad + seeds 4 tokens and real trades
+npm run dev          # everything: fork, deploy, seed, write .env, build, serve on :8787
+npm run dev:fund -- 0xYourWallet   # a fresh wallet has no ETH on the fork
+```
+
+`npm run dev` replaces a six-step copy-paste dance — it writes every deployed address into
+`.env` itself, so a stale `VITE_FINCH_FACTORY` can no longer point the UI at a contract that
+does not exist. The fork runs on chain id **31337** by default, not 4663: MetaMask ships a
+built-in entry for 4663 pinned to the public RPC, so a fork on 4663 shows a zero balance in
+the wallet no matter which RPC you configure.
+
+The individual steps still exist if you want them:
+
+```bash
+npm run dev:fork     # anvil forking chain 4663 (leave running)
+npm run dev:seed     # deploy finchpad + seed tokens and trades
 ```
 
 `dev:seed` prints the exact command to point the API at the fork. **Use it verbatim** —
@@ -159,17 +185,15 @@ the floor to the fork base keeps every scan inside local blocks.
 Both scripts are Node, not shell, so they run on Windows too (`npm run` there shells to cmd,
 where `bash` resolves to the WSL relay rather than Git Bash).
 
-`dev:seed` broadcasts in `--slow` mode (one transaction per block). That is not politeness:
-the seed buys each token immediately after launching it, and batched into one block a buy
-lands inside that token's anti-snipe window and reverts — the pool's transfer to the buyer
-fails and surfaces as Uniswap's opaque `TF`. Slow mode makes the seed deterministic.
+`dev:seed` broadcasts in `--slow` mode (one transaction per block), which keeps the seed
+deterministic and stops forge mislabelling batched transactions in its output.
 
 Robinhood's testnet (46630) has no Uniswap V3 deployed, so the launch flow can't run there.
 The dev scripts fork mainnet instead, giving the real Uniswap periphery with fake money:
 
 ```bash
 npm run dev:fork                # boot anvil forking RH mainnet (leave running)
-npm run dev:seed                # deploy finchpad on the fork + seed launches/trades
+npm run dev:seed                # deploy finchpad on the fork + seed tokens/trades
 ```
 
 Seeding impersonates a clean address via anvil — no private key lives in this repo.

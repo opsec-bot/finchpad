@@ -57,7 +57,7 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
     <div className="token-page">
       <div className="panel token-head">
         <button className="back" onClick={onBack}>
-          ← all launches
+          ← all tokens
         </button>
         <div className="token-title">
           <strong>{t.name}</strong>

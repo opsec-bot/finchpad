@@ -1,4 +1,4 @@
-// finchpad read API. Serves the frontend: launches, token detail, price, candles, trades.
+// finchpad read API. Serves the frontend: tokens, token detail, price, candles, trades.
 //
 // Reads live off-chain, so this runs today with no database. A TTL cache keeps repeat
 // requests cheap. When a Postgres indexer exists (see schema.sql), swap the handlers to
@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { PONS } from "../lib/contracts.js";
-import { getCandles, getFeatured, getRecentLaunches, getTokenDetail, getTrades } from "../lib/tokenData.js";
+import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades } from "../lib/tokenData.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -201,10 +201,10 @@ async function route(url) {
   if (parts.length === 1) {
     const blocks = boundedBlocks(q.get("blocks"));
     const limit = boundedInt(q.get("limit"), 50, MAX_LIMIT);
-    const launches = await cached(`launches:${blocks}:${limit}`, 15_000, () =>
-      getRecentLaunches({ factoryAddress: FACTORY, blocks, limit })
+    const tokens = await cached(`tokens:${blocks}:${limit}`, 15_000, () =>
+      getRecentTokens({ factoryAddress: FACTORY, blocks, limit })
     );
-    return { status: 200, body: { factory: FACTORY, count: launches.length, launches } };
+    return { status: 200, body: { factory: FACTORY, count: tokens.length, tokens } };
   }
 
   const token = parts[1];

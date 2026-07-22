@@ -130,8 +130,8 @@ export async function getTokenDetail(token, factoryAddress) {
   };
 }
 
-/** Recent launches from a factory. */
-export async function getRecentLaunches({ factoryAddress, blocks = 5000n, chunkSize = 1000n, limit = 50 }) {
+/** Recently launched tokens from a factory. */
+export async function getRecentTokens({ factoryAddress, blocks = 5000n, chunkSize = 1000n, limit = 50 }) {
   const latest = await publicClient.getBlockNumber();
   const fromBlock = floorBlock(latest > blocks ? latest - blocks : 0n);
 
@@ -141,7 +141,7 @@ export async function getRecentLaunches({ factoryAddress, blocks = 5000n, chunkS
   //
   // Each shape is allowed to fail on its own — a finchpad factory has no pons events and
   // vice versa. But if BOTH fail the scan itself is broken, and returning [] would report
-  // "no launches" for what is actually an RPC error. That exact case cost real debugging
+  // "no tokens" for what is actually an RPC error. That exact case cost real debugging
   // time on an anvil fork: anvil proxies pre-fork eth_getLogs upstream, Alchemy's free tier
   // rejects ranges wider than 10 blocks, and the launch list silently came back empty.
   // Set FINCHPAD_MIN_BLOCK to the fork base block to keep scans inside local blocks.

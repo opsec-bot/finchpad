@@ -12,13 +12,13 @@ export default function Explore({
   selected: string | null;
   onSelect: (t: string) => void;
 }) {
-  const [launches, setLaunches] = useState<TokenSummary[] | null>(null);
+  const [tokens, setTokens] = useState<TokenSummary[] | null>(null);
   const [listErr, setListErr] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .tokens()
-      .then((d) => setLaunches(d.launches))
+      .then((d) => setTokens(d.tokens))
       .catch((e: Error) => setListErr(e.message));
   }, []);
 
@@ -26,12 +26,12 @@ export default function Explore({
     <div className="wrap">
       <div>
         <div className="panel">
-          <strong>recent launches</strong>
+          <strong>recent tokens</strong>
           <div style={{ marginTop: 8 }}>
             {listErr && <span className="warn">{listErr}</span>}
-            {!launches && !listErr && <span className="dim">loading</span>}
-            {launches?.length === 0 && <span className="dim">no launches in range</span>}
-            {launches?.map((l) => (
+            {!tokens && !listErr && <span className="dim">loading</span>}
+            {tokens?.length === 0 && <span className="dim">no tokens in range</span>}
+            {tokens?.map((l) => (
               <div key={l.txHash} className="row" onClick={() => onSelect(l.token)}>
                 <span className="mono">{short(l.token)}</span>
                 <span className="dim mono">blk {l.block}</span>
@@ -40,7 +40,7 @@ export default function Explore({
           </div>
         </div>
       </div>
-      <div>{selected ? <TokenPanel address={selected} /> : <div className="panel dim">select a launch</div>}</div>
+      <div>{selected ? <TokenPanel address={selected} /> : <div className="panel dim">select a token</div>}</div>
     </div>
   );
 }
