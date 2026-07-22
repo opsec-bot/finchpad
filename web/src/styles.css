@@ -111,3 +111,8 @@ button.primary.sell { background: var(--down); border-color: var(--down); color:
   h1 { font-size: 16px; }
 }
 .stat-sub { font-size: 11px; margin-top: 1px; }
+.prefixed { display: flex; align-items: center; gap: 0; border: 1px solid var(--line);
+  border-radius: 6px; background: #0f1317; padding-left: 10px; }
+.prefixed:focus-within { border-color: var(--accent); }
+.prefixed input { border: 0; background: transparent; padding-left: 2px; }
+.prefixed input:focus { outline: none; }

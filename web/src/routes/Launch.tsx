@@ -31,7 +31,6 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     referrer: "",
     feeWallet: "",
     creatorBuy: "",
-    startMcapEth: String(CURVE_A.startMcapEth),
   });
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
@@ -40,7 +39,9 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       setF((prev) => ({ ...prev, [k]: e.target.value }));
 
   const configured = addresses.factory !== "";
-  const startMcap = Number(f.startMcapEth) || CURVE_A.startMcapEth;
+  // Fixed, not a field. Every launchpad pins the opening curve so tokens are comparable and
+  // creators cannot misprice themselves; exposing it was a footgun with no upside.
+  const startMcap = CURVE_A.startMcapEth;
 
   const problems = useMemo(() => {
     const p: string[] = [];
@@ -52,7 +53,6 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       p.push("you cannot refer yourself; the factory rejects it");
     if (f.feeWallet && !/^0x[a-fA-F0-9]{40}$/.test(f.feeWallet)) p.push("fee recipient must be a 0x address");
     if (f.creatorBuy && !(Number(f.creatorBuy) >= 0)) p.push("opening buy must be a positive amount");
-    if (!(startMcap > 0)) p.push("start market cap must be positive");
     return p;
   }, [f, wallet, startMcap]);
 
@@ -149,16 +149,19 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       <div className="grid2">
         <div className="field">
           <label>name</label>
-          <input value={f.name} onChange={set("name")} placeholder="Finch Genesis" />
+          <input value={f.name} onChange={set("name")} placeholder="Finch Genesis" maxLength={32} />
         </div>
         <div className="field">
           <label>symbol</label>
-          <input value={f.symbol} onChange={set("symbol")} placeholder="GENESIS" />
+          <input value={f.symbol} onChange={set("symbol")} placeholder="GENESIS" maxLength={10} />
         </div>
       </div>
       <div className="field">
-        <label>description</label>
-        <input value={f.description} onChange={set("description")} />
+        <label>
+          description
+          <span className="spacer-inline dim">{f.description.length}/256</span>
+        </label>
+        <input value={f.description} onChange={set("description")} maxLength={256} />
       </div>
       <div className="field">
         <label>logo url</label>
@@ -166,12 +169,18 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       </div>
       <div className="grid2">
         <div className="field">
-          <label>twitter</label>
-          <input value={f.twitter} onChange={set("twitter")} />
+          <label>X profile</label>
+          <div className="prefixed">
+            <span className="dim">x.com/</span>
+            <input value={f.twitter} onChange={set("twitter")} placeholder="handle" />
+          </div>
         </div>
         <div className="field">
           <label>telegram</label>
-          <input value={f.telegram} onChange={set("telegram")} />
+          <div className="prefixed">
+            <span className="dim">t.me/</span>
+            <input value={f.telegram} onChange={set("telegram")} placeholder="community" />
+          </div>
         </div>
         <div className="field">
           <label>website</label>
@@ -189,27 +198,13 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           </select>
         </div>
         <div className="field">
-          <label>
-            starting valuation
-            {ethUsd ? <span className="spacer-inline dim">{usd(startMcap * ethUsd)}</span> : null}
-          </label>
-          <input value={f.startMcapEth} onChange={set("startMcapEth")} />
-          <div className="pcts">
-            {[0.5, 1, 2, 5].map((v) => (
-              <button
-                key={v}
-                className={startMcap === v ? "sel" : ""}
-                onClick={() => setF((p) => ({ ...p, startMcapEth: String(v) }))}
-              >
-                {ethUsd ? usd(v * ethUsd) : `${v} ETH`}
-              </button>
-            ))}
+          <label>opening price</label>
+          <div className="review" style={{ padding: "8px 10px" }}>
+            <span className="mono">
+              {ethUsd ? usd(startMcap * ethUsd) : `${startMcap} ETH`} starting valuation
+            </span>
+            <span className="dim"> — same for every finchpad launch</span>
           </div>
-          <p className="dim" style={{ marginTop: 6 }}>
-            What the whole supply is worth at the first trade — the price the pool opens at.
-            Lower means cheaper entry and more room to run; higher means buyers pay more per
-            token from the start.
-          </p>
         </div>
       </div>
 
@@ -265,6 +260,8 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           <div>{CURVE_A.totalSupply.toLocaleString()} fixed, no mint function</div>
           <div>opening valuation</div>
           <div>{ethUsd ? `${usd(startMcap * ethUsd)} (${startMcap} ETH)` : `${startMcap} ETH`}</div>
+          <div>graduation at</div>
+          <div>{CURVE_A.graduationEth} Ξ paired</div>
           <div>launch fee</div>
           <div>
             {formatEther(LAUNCH_FEE)} ETH
