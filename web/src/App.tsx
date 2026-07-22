@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { WalletButton } from "./components/Wallet";
 import Explore from "./routes/Explore";
 import Launch from "./routes/Launch";
+import Token from "./routes/Token";
+import { ToastProvider } from "./components/Toast";
 import { api } from "./lib/api";
 import { robinhoodChain } from "./lib/chain";
 
@@ -20,7 +22,7 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <ToastProvider>
       <header>
         <h1>finchpad</h1>
         <span className="dim">launchpad on Robinhood Chain ({robinhoodChain.id})</span>
@@ -38,7 +40,13 @@ export default function App() {
       </header>
 
       {tab === "explore" ? (
-        <Explore selected={selected} onSelect={setSelected} />
+        selected ? (
+          <div className="wrap-single">
+            <Token address={selected} onBack={() => setSelected(null)} />
+          </div>
+        ) : (
+          <Explore selected={null} onSelect={setSelected} />
+        )
       ) : (
         <div style={{ padding: "16px 20px", maxWidth: 780 }}>
           <Launch
@@ -49,6 +57,6 @@ export default function App() {
           />
         </div>
       )}
-    </>
+    </ToastProvider>
   );
 }

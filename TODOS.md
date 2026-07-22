@@ -27,7 +27,21 @@ lock, burn, claim, boost, or request a CTO from the site. Polish comes after the
   - [x] CI: frontend job (typecheck + build + `npm audit --audit-level=high`). Privy 3.35.1
         arrived with 32 advisories incl. 2 high (viem 2.52.0, ws, axios, uuid); pinned
         patched versions via `overrides` -> audit reports 0. Revisit when Privy bumps.
-  - [ ] Trade flow -> V3 router, slippage + price-impact display  **<- next**
+  - [x] **Trade flow — DONE.** Buy/sell with live QuoterV2 quotes (debounced, stale-response
+        guarded), slippage selector (auto/0.5/1/3%/custom), price impact with escalating
+        warnings, minimum received, network fee estimate, transaction progress toasts, and
+        readable revert decoding. Buys spend native ETH in ONE transaction (SwapRouter02
+        wraps it); sells approve then swap+unwrap in a multicall so the seller receives ETH,
+        not WETH. Verified against live Uniswap on a fork: buy 44.39M tokens for 0.05 ETH at
+        149,903 gas; sell returned native ETH with a WETH delta of exactly 0.
+  - [x] **Token page**: TradingView lightweight-charts candles, recent trades, market cap,
+        volume, supply, graduation progress, plus a transparency panel stating locked
+        liquidity, fixed supply, fee wallet, fee split, GitHub binding and escrow state —
+        including the unflattering cases (unclaimed escrow, not-from-this-factory).
+  - [ ] Content policy for token names/symbols. They are attacker-controlled strings rendered
+        to every visitor; the injection half is handled (esc()), the moderation half is not.
+        Slurs and impersonation in the launch feed are a listing-quality problem for a pad
+        selling itself as the anti-scam option.
   - [ ] Submit `claimGithub()` from the signature the OAuth flow already returns
   - [ ] Lock / burn / redirect / CTO-request / feature+boost purchase
   - [ ] No blind-signing anywhere: show exactly what is being signed

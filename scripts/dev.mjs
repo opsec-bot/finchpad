@@ -114,7 +114,26 @@ function updateEnv(updates) {
   writeFileSync(path, `${kept.trimEnd()}\n${block}`);
 }
 
+/** Fail early if the API port is taken — otherwise we seed and rewrite .env, then die. */
+async function assertPortFree(port) {
+  try {
+    const res = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(1500) });
+    const who = await res.json().catch(() => ({}));
+    throw new Error(
+      `Something is already serving :${port}` +
+        (who.factory ? ` (a finchpad API on factory ${who.factory})` : "") +
+        `.\nStop it first, or run with --port <other>. Leaving it would seed a fresh deployment` +
+        ` and rewrite .env while the old API keeps serving the old addresses.`,
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Something is already serving")) throw err;
+    // Nothing listening (or it is not us) — good.
+  }
+}
+
 async function main() {
+  await assertPortFree(PORT);
+
   // 1. fork ------------------------------------------------------------------------------
   // Reuse a node already on :8545 rather than failing to bind. Leaving `npm run dev:fork`
   // running in another terminal is the normal state of things, and a port-in-use crash
@@ -213,9 +232,14 @@ async function main() {
 
   // 5. api -------------------------------------------------------------------------------
   step(5, `starting the API on :${PORT}`);
+  // Pass the freshly written values explicitly. `--env-file` does NOT override variables
+  // already in the environment, and this process loaded the PREVIOUS .env at startup — so an
+  // inherited stale FINCH_FACTORY would win and the API would serve the old deployment while
+  // .env and the frontend pointed at the new one.
   const api = spawn(process.execPath, ["--env-file=.env", join(ROOT, "src", "backend", "api.js"), "--port", PORT], {
     cwd: ROOT,
     stdio: "inherit",
+    env: { ...process.env, ...updates },
   });
   children.push(api);
   api.on("exit", (code) => {

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "finchpad frontend. Kept as its own package so the backend service \u2014 which sits next to a signing key \u2014 keeps its zero-dependency posture.",
+  "description": "finchpad frontend. Kept as its own package so the backend service — which sits next to a signing key — keeps its zero-dependency posture.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.35.1",
+    "lightweight-charts": "^5.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "viem": "^2.55.5"
