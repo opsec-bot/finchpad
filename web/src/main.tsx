@@ -38,6 +38,9 @@ function Root() {
         // Give people who have no wallet a way in — the whole point of creator onboarding.
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
         loginMethods: ["wallet", "email", "google", "github"],
+        // Coinbase Smart Wallet does not support chain 4663, and offering it produces a
+        // connector that can only fail. EOA connection to Coinbase Wallet still works.
+        externalWallets: { coinbaseWallet: { config: { preference: { options: "eoaOnly" } } } },
       }}
     >
       <App />

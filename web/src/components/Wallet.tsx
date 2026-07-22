@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { robinhoodChain } from "../lib/chain";
+import { switchToRobinhood } from "../lib/tx";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -12,6 +14,7 @@ export function useActiveWallet() {
 export function WalletButton() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const wallet = useActiveWallet();
+  const [switchErr, setSwitchErr] = useState<string | null>(null);
 
   if (!ready) return <span className="dim">…</span>;
   if (!authenticated) {
@@ -28,8 +31,18 @@ export function WalletButton() {
         {label}
       </span>
       {wallet && wallet.chainId !== `eip155:${robinhoodChain.id}` && (
-        <button onClick={() => wallet.switchChain(robinhoodChain.id)}>switch to chain 4663</button>
+        <button
+          onClick={() => {
+            setSwitchErr(null);
+            switchToRobinhood(wallet).catch((e: Error) =>
+              setSwitchErr(e.message.includes("rejected") ? "chain switch rejected" : "could not switch chain"),
+            );
+          }}
+        >
+          switch to chain 4663
+        </button>
       )}
+      {switchErr && <span className="warn">{switchErr}</span>}
       <button onClick={logout}>disconnect</button>
     </>
   );

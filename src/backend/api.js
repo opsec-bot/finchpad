@@ -80,7 +80,7 @@ export function boundedInt(v, fallback, max) {
   return Math.floor(Math.min(n, max));
 }
 
-function send(res, status, body, headers) {
+function send(req, res, status, body, headers) {
   const payload = JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -88,7 +88,9 @@ function send(res, status, body, headers) {
     "cache-control": "public, max-age=10",
     ...headers,
   });
-  res.end(payload);
+  // HEAD must return headers only. Wallet SDKs probe the page this way (Coinbase's
+  // Cross-Origin-Opener-Policy check), and answering 405 breaks their connect flow.
+  res.end(req.method === "HEAD" ? undefined : payload);
 }
 
 // --- routes ---------------------------------------------------------------------------
@@ -153,6 +155,36 @@ async function route(url) {
 }
 
 // Serve the single-page frontend from the same origin (so it needs no CORS and no build).
+// Privy's documented CSP (docs.privy.io/security/implementation-guide/content-security-policy)
+// with two additions: our chain RPC, and the local anvil fork in development. img-src allows
+// https: because token logos are arbitrary creator-supplied URLs.
+const DEV = process.env.NODE_ENV !== "production";
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "child-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org",
+  "frame-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com",
+  [
+    "connect-src 'self'",
+    "https://auth.privy.io https://api.privy.io https://*.rpc.privy.systems",
+    "https://explorer-api.walletconnect.com",
+    "wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org",
+    "https://*.chain.robinhood.com https://*.g.alchemy.com",
+    DEV ? "http://localhost:8545 http://127.0.0.1:8545" : "",
+  ]
+    .filter(Boolean)
+    .join(" "),
+  "worker-src 'self'",
+  "manifest-src 'self'",
+].join("; ");
+
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), "..", "..", "..", "web", "dist");
 const WEB_INDEX = resolve(WEB_DIST, "index.html");
 
@@ -169,7 +201,7 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-async function serveAsset(pathname, res) {
+async function serveAsset(req, pathname, res) {
   // Vite emits everything under /assets with content-hashed names.
   if (!pathname.startsWith("/assets/")) return false;
   // Reject anything that could escape the dist directory before touching the filesystem.
@@ -189,12 +221,12 @@ async function serveAsset(pathname, res) {
     "cache-control": "public, max-age=31536000, immutable",
     "x-content-type-options": "nosniff",
   });
-  res.end(body);
+  res.end(req.method === "HEAD" ? undefined : body);
   return true;
 }
 
 export const server = createServer(async (req, res) => {
-  if (req.method !== "GET") return send(res, 405, { error: "GET only" });
+  if (req.method !== "GET" && req.method !== "HEAD") return send(req, res, 405, { error: "GET or HEAD only" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -205,10 +237,10 @@ export const server = createServer(async (req, res) => {
         res.writeHead(302, { location: authed.redirect, "cache-control": "no-store" });
         return res.end();
       }
-      return send(res, authed.status, authed.body, { "cache-control": "no-store" });
+      return send(req, res, authed.status, authed.body, { "cache-control": "no-store" });
     }
 
-    if (await serveAsset(url.pathname, res)) return;
+    if (await serveAsset(req, url.pathname, res)) return;
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
@@ -218,29 +250,18 @@ export const server = createServer(async (req, res) => {
           "cache-control": "no-cache",
           // Defence in depth for a page that prompts wallet signing. Privy needs its own
           // origin for auth frames and its RPC/analytics hosts; everything else is denied.
-          "content-security-policy": [
-            "default-src 'self'",
-            "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: https:",
-            "font-src 'self' data:",
-            "connect-src 'self' https://auth.privy.io https://api.privy.io wss://relay.walletconnect.com https://*.chain.robinhood.com https://*.alchemy.com",
-            "frame-src https://auth.privy.io https://verify.walletconnect.com",
-            "frame-ancestors 'none'",
-            "base-uri 'self'",
-            "form-action 'self'",
-          ].join("; "),
+          "content-security-policy": CSP,
           "x-content-type-options": "nosniff",
           "referrer-policy": "strict-origin-when-cross-origin",
         });
-        return res.end(html);
+        return res.end(req.method === "HEAD" ? undefined : html);
       }
     }
 
     const { status, body } = await route(url);
-    send(res, status, body);
+    send(req, res, status, body);
   } catch (err) {
-    send(res, 500, { error: err.shortMessage || err.message || "internal error" });
+    send(req, res, 500, { error: err.shortMessage || err.message || "internal error" });
   }
 });
 

@@ -8,12 +8,46 @@ import { robinhoodChain } from "./chain";
 export const publicClient = createPublicClient({ chain: robinhoodChain, transport: http() });
 
 /**
+ * Put the wallet on Robinhood Chain, adding the network first if it does not know it.
+ *
+ * Chain 4663 is not in any wallet's default list, so `switchChain` alone fails with
+ * "Provider is not connected to the requested chain" on a wallet that has never seen it.
+ * EIP-3326 says to fall back to wallet_addEthereumChain (EIP-3085) in that case.
+ */
+export async function switchToRobinhood(wallet: ConnectedWallet): Promise<void> {
+  try {
+    await wallet.switchChain(robinhoodChain.id);
+    return;
+  } catch (err) {
+    const provider = await wallet.getEthereumProvider();
+    try {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: `0x${robinhoodChain.id.toString(16)}`,
+            chainName: robinhoodChain.name,
+            nativeCurrency: robinhoodChain.nativeCurrency,
+            rpcUrls: [...robinhoodChain.rpcUrls.default.http],
+            blockExplorerUrls: [robinhoodChain.blockExplorers.default.url],
+          },
+        ],
+      });
+    } catch {
+      // Surface the original switch failure — it is the more useful of the two.
+      throw err;
+    }
+    await wallet.switchChain(robinhoodChain.id);
+  }
+}
+
+/**
  * A wallet client for the connected wallet, on Robinhood Chain.
  * Switches the wallet's network first — an external wallet sitting on mainnet would
  * otherwise sign for the wrong chain.
  */
 export async function getWalletClient(wallet: ConnectedWallet): Promise<WalletClient> {
-  await wallet.switchChain(robinhoodChain.id);
+  await switchToRobinhood(wallet);
   const provider = await wallet.getEthereumProvider();
   return createWalletClient({
     account: wallet.address as Address,

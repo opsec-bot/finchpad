@@ -74,3 +74,17 @@ test("boundedInt clamps to max and falls back on garbage", () => {
   assert.equal(boundedInt("1000000000", 100, 200), 200); // clamped
   assert.equal(boundedInt("-3", 100, 200), 100); // non-positive -> default
 });
+
+// HEAD must work: wallet SDKs probe the page this way (Coinbase's Cross-Origin-Opener-Policy
+// check), and a 405 there breaks the connect flow.
+test("HEAD returns headers with no body", async () => {
+  const res = await fetch(`${base}/health`, { method: "HEAD" });
+  assert.equal(res.status, 200);
+  assert.equal((await res.text()).length, 0);
+});
+
+test("non-GET/HEAD methods are still rejected", async () => {
+  for (const method of ["POST", "PUT", "DELETE"]) {
+    assert.equal((await fetch(`${base}/health`, { method })).status, 405, method);
+  }
+});
