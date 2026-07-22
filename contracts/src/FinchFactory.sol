@@ -116,7 +116,7 @@ contract FinchFactory is ReentrancyGuard {
         returns (uint256 earned, uint256 threshold, bool graduated)
     {
         if (address(locker) == address(0)) return (0, 0, false);
-        return locker.graduationOf(token);
+        (earned, threshold, graduated) = locker.graduationOf(token);
     }
 
     function launch(LaunchParams calldata p)
