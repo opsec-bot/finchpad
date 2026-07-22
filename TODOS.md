@@ -1,5 +1,90 @@
 # finchpad TODOS
 
+## ROADMAP (set 2026-07-22, after PR #8 merged)
+
+Five priorities, in the only order the dependencies allow. The sequencing matters more than
+the list: items 1/3 are blocked on write flows that do not exist, 2 is blocked on
+persistence, and 5 is blocked on being live.
+
+**R1. Frontend — build the write flows (this is not "polish").** The UI is 100% read-only
+today: list, token detail, chart, trades, featured rail, and a GitHub-claim button that only
+opens an OAuth URL. There is **no wallet connection anywhere** (zero references to
+ethereum/walletconnect/sendTransaction in web/index.html), so no user can launch, trade,
+lock, burn, claim, boost, or request a CTO from the site. Polish comes after these exist.
+  - [ ] Wallet connect (the one unblocker for everything below)
+  - [ ] Launch flow -> `FinchFactory.launch()` (curve params from src/lib/launchCurve.js)
+  - [ ] Trade flow -> V3 router, slippage + price-impact display
+  - [ ] Submit `claimGithub()` from the signature the OAuth flow already returns
+  - [ ] Lock / burn / redirect / CTO-request / feature+boost purchase
+  - [ ] No blind-signing anywhere: show exactly what is being signed
+  - Build against the local anvil fork — `npm run dev:fork` + `npm run dev:seed` already
+    stand up a real chain seeded with 4 tokens (plain, referred, repo-bound, user-bound)
+    plus a featured and a boosted one. There is no live testnet (no Uniswap on RH testnet).
+
+**R2. Persistence — the hard prerequisite for the analytics dashboard.** The API reads live
+off-chain with a TTL cache and no database. That cannot back historical analytics: Alchemy's
+free tier caps `eth_getLogs` at 10 blocks, and the public RPC now serves Cloudflare
+challenges to datacenter IPs (this is what broke CI fork tests). `src/backend/schema.sql`
+exists but nothing writes to it.
+  - [ ] Indexer daemon that writes tokens/launches/swaps/holders/ohlc/fee_claims to Postgres
+  - [ ] Reorg handling + resumable cursor
+  - [ ] Switch API handlers from live reads to SQL (response shapes must not change)
+
+**R3. Analytics dashboard.** Depends on R2. The events to build on already exist and are
+indexed by design: `Launched`, `Swap`, `FeesCollected`, `ReferralPaid`, `Graduated`,
+`GithubBound`/`GithubClaimSettled`/`EscrowAccrued`/`EscrowSwept`, `Featured`/`Boosted`.
+  - [ ] Protocol: launches/day, volume, fees earned + split, referral payouts, graduation rate
+  - [ ] Per-token: holders, concentration (rug-risk, already self-validating), fee history
+  - [ ] Per-creator: tokens by githubId, claimed vs escrowed
+  - [ ] Revenue: launch fees, protocol share, FeatureBoost sales
+
+**R4. Creator onboarding.** Depends on R1.
+  - [ ] Launch wizard with sane curve defaults (do not make people pick ticks)
+  - [ ] GitHub-bound launch as a first-class path (claim your repo's/your own token)
+  - [ ] Post-launch: share card, fee-claim explainer, lock-your-allocation prompt
+  - [ ] Docs: what fees you earn, what graduation does, what locking signals
+
+**R5. Threshold calibration — only possible once live.** `FINCH_GRAD_FEE_THRESHOLD`
+currently defaults to 0.25 ether (~25 ETH of buy volume at the 1% tier); the referral bps and
+graduation bonus bps are likewise guesses. Needs real launch data from R2's tables.
+  - [ ] Instrument, observe, then retune. **All three are immutable constructor args**, so
+        retuning means deploying a new factory/locker set — decide the numbers before the
+        deploy that takes real liquidity, not after.
+
+---
+
+## SEQUENCING WARNING — "security review before significant TVL" is too late
+
+Contracts are immutable and ship as new addresses. The locker holds each launch's LP NFT
+**permanently**, so tokens launched on v1 can never migrate to a fixed v2 — their liquidity
+and fee rights stay on the buggy version forever. A bug found after launch #1 is not "lose a
+little TVL", it is "every early creator is permanently stranded on a version we cannot
+patch". The review therefore has to gate the **first mainnet deploy that accepts real
+liquidity**, not a TVL number.
+
+Hard gates before that deploy (from docs/security-audit.md + PLAN.md Phase 5):
+- [ ] **Independent third-party audit** (internal review found 2 Highs; assume more exist)
+- [ ] **Legal review** — US securities / money-transmitter; buyback-burn can read as a dividend
+- [ ] **`admin` behind a multisig + timelock** — today one key can redirect any token's fee
+      stream via `approveCTO`
+- [ ] **GitHub signer key in HSM/KMS**, signer service network-isolated from the public API —
+      a hot key next to the web server is the single worst deployment mistake available
+- [ ] **Rotate the OAuth client secret** (it transited a chat during setup; still not done)
+- [ ] Echidna / formal pass on the locker's fee accounting
+- [ ] `/security-review` on the frontend+backend diff once R1 exists (wallet flows are new
+      drainer surface; the XSS fix already shipped, but signing UX has not been reviewed)
+- [ ] Deploy with a small treasury first; do not seed large liquidity on day one
+
+## Also still missing, not in the five (each blocks "done")
+
+- [ ] **FINCH buyback-burn keeper.** The burn mechanic does not exist. Protocol fees just
+      accumulate at `protocolFeeRecipient`. FINCH itself must also be launched through
+      finchpad to give the buyback a market.
+- [ ] **Mainnet deploy** — needs a funded deployer key (you run `Deploy.s.sol`, I never touch
+      it). No testnet rehearsal is possible: RH testnet has no Uniswap V3.
+- [ ] **`block.number` semantics on Arbitrum** — decide keep (recommended) vs `ArbSys`.
+- [ ] Frontend CSP + security headers, and generic 500s (F3/F4 in the adoption report).
+
 ## PR #8 review (monetization: referral / graduation rewards / featured) — 2026-07-22
 
 Reviewed locally with a real Foundry+Slither toolchain (cloud CI couldn't run them).
@@ -187,13 +272,6 @@ the referrer amounts, unused-return in markGraduated).
       the keeper. Launch FINCH through finchpad itself to give the buyback a market.
 - [ ] **FinchLock streaming payments + airdrop tooling.** The rest of Streamflow. Separate
       product, not now.
-
-## Phase 2 infra (not started)
-
-- [ ] Extend indexer: Swap indexing per pool, OHLC, holders via Transfer, graduation polling.
-- [ ] Backend REST API (token list/detail/price/chart/holders).
-- [ ] GitHub OAuth + EIP-712 signer service (network-isolated; signer key in HSM/KMS).
-- [ ] Postgres schema.
 
 ## Squeeze GitHub for everything free (revisit before web dev)
 
