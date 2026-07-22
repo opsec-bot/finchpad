@@ -32,7 +32,14 @@ contract SeedLocal is Script {
     uint160 constant SQRT_A_TOKEN0 = 2505414483750479311864138;
     uint160 constant SQRT_A_TOKEN1 = 2505414483750479311864138015696063;
 
+    // Held as state, not locals: run() deploys six contracts and four tokens, and keeping
+    // them all live on the stack through the closing console.log block overflows solc's
+    // stack limit (even under via_ir). Scripts are not gas-sensitive, so storage is free here.
     FinchFactory factory;
+    FinchLocker locker;
+    FeeRightsRegistry registry;
+    FinchLock lockVault;
+    FeatureBoost featureBoost;
 
     /**
      * @dev No private key anywhere. The runner impersonates a clean address on anvil
@@ -51,10 +58,10 @@ contract SeedLocal is Script {
         FinchToken impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me);
         // referral: 10% of the protocol share; graduation: 20%->15% once graduated.
-        FinchLocker locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500);
-        FeeRightsRegistry registry = new FeeRightsRegistry(address(locker), me, me);
-        FinchLock lockVault = new FinchLock();
-        FeatureBoost featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);
+        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500);
+        registry = new FeeRightsRegistry(address(locker), me, me);
+        lockVault = new FinchLock();
+        featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);
         factory.setLocker(address(locker));
         locker.setRegistry(address(registry));
 

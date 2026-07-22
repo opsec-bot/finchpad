@@ -216,6 +216,8 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         Launch storage l = launches[token];
         if (!l.exists) revert UnknownToken();
         if (l.graduated) revert AlreadyGraduated();
+        // Only the boolean matters here; principal/threshold are for UI progress bars.
+        // slither-disable-next-line unused-return
         (,, bool graduated) = IFinchFactoryGraduation(factory).graduationStatus(token);
         if (!graduated) revert NotGraduated();
         l.graduated = true;
@@ -335,7 +337,11 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         // Referral: carve a slice of the PROTOCOL share for the referrer, before any branch.
         // Deliberately not applied to creator-share that later redirects to protocol on an
         // expired unclaimed GitHub launch — that stays whole for the buyback path.
+        // Left at the zero default when there is no referrer — that is the intended value,
+        // and both are read unconditionally below.
+        // slither-disable-next-line uninitialized-local
         uint256 tokenToReferrer;
+        // slither-disable-next-line uninitialized-local
         uint256 wethToReferrer;
         if (l.referrer != address(0) && referralShareBps > 0) {
             tokenToReferrer = (tokenToProtocol * referralShareBps) / BPS;
