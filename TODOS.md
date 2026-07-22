@@ -1,5 +1,33 @@
 # finchpad TODOS
 
+## LAUNCH DECISIONS (user calls, 2026-07-22, from the launch-readiness review)
+
+Two calls made after the readiness questionnaire. Execution is the user's (provisioning
+work, no code): scheduled for tomorrow.
+
+- [ ] **Audit: post-launch, not before.** The $1,000 budget doesn't buy a firm audit, so the
+      first mainnet deploy will NOT wait on one. Mitigation per `docs/launch/audit-plan.md`:
+      deploy with `FINCH_GITHUB_SIGNER=address(0)` so the novel claim/escrow surface is dead
+      at the contract level on day one, run the free tooling pass (slither/aderyn/invariants),
+      apply for a community round (CodeHawks First Flights), stand up the $1,000 public bounty
+      (SECURITY.md drafted), and commit publicly to a professional audit from protocol fees.
+      This supersedes the "audit gates the first deploy" hard gate below — the gate becomes
+      "GitHub claims stay disabled until the claim flow has had outside eyes".
+- [ ] **Registry admin goes behind a Gnosis Safe.** The `Ownable` admin of FeeRightsRegistry
+      (rotates/kills the signer via `setTrustedSigner`, executes CTOs) will be a Safe, not an
+      EOA — closes the "one key can redirect any token's fee stream" gate and gives the
+      signer-key runbook a recovery path that survives one lost device.
+      - [ ] **Verify Safe is deployable on chain 4663 first** — the Safe singleton/factory may
+            not exist on Robinhood Chain. If it isn't there, options are deploying the Safe
+            contracts ourselves or launching with a hardware-wallet EOA and migrating via
+            `transferOwnership` once a Safe exists. Check before deploy day, not on it.
+      - [ ] Create the Safe (solo founder: 2-of-3 with keys on separate devices/locations
+            beats 1-of-1, which is just an EOA with extra steps).
+      - [ ] Pass the Safe address as `admin` in `Deploy.s.sol`.
+      - [ ] Update `docs/security/signer-key-runbook.md`: the containment/rotation `cast send`
+            commands become Safe transactions (Safe UI or safe-cli) — re-time the "<1 hour
+            containment" target against how fast a 2-of-3 can actually sign.
+
 ## SAVED FOR LATER — "claim fees" flow (creator-facing, not built)
 
 The piece that makes GitHub-bound launches usable end to end. Today a creator can only claim
@@ -162,9 +190,12 @@ liquidity**, not a TVL number.
 
 Hard gates before that deploy (from docs/security-audit.md + PLAN.md Phase 5):
 - [ ] **Independent third-party audit** (internal review found 2 Highs; assume more exist)
+      — **user call 2026-07-22: moved post-launch** (see LAUNCH DECISIONS at top +
+      `docs/launch/audit-plan.md`); replacement gate: GitHub claims disabled at deploy
 - [ ] **Legal review** — US securities / money-transmitter; buyback-burn can read as a dividend
 - [ ] **`admin` behind a multisig + timelock** — today one key can redirect any token's fee
-      stream via `approveCTO`
+      stream via `approveCTO` — **user call 2026-07-22: Gnosis Safe, decided** (see LAUNCH
+      DECISIONS at top; still unchecked until the Safe exists and is the deployed admin)
 - [ ] **GitHub signer key in HSM/KMS**, signer service network-isolated from the public API —
       a hot key next to the web server is the single worst deployment mistake available
 - [ ] **Rotate the OAuth client secret** (it transited a chat during setup; still not done)

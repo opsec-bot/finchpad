@@ -131,9 +131,9 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
 
   if (!configured) {
     return (
-      <div className="panel">
+      <div className="rounded-xl border border-border bg-card p-4">
         <strong>launch a token</strong>
-        <p className="dim">
+        <p className="text-muted-foreground">
           No factory address configured. Set <code>VITE_FINCH_FACTORY</code> in{" "}
           <code>web/.env.local</code>. Run <code>npm run dev:fork</code> then{" "}
           <code>npm run dev:seed</code> to get a local deployment to point at.
@@ -143,61 +143,61 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
   }
 
   return (
-    <div className="panel">
+    <div className="rounded-xl border border-border bg-card p-4">
       <strong>launch a token</strong>
-      <p className="dim">
+      <p className="text-muted-foreground">
         One transaction: deploys the token, creates its Uniswap V3 pool, and deposits the whole
         supply as locked liquidity. Liquidity is locked permanently and cannot be pulled.
       </p>
 
-      <div className="grid2">
-        <div className="field">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="mb-3">
           <label>name</label>
           <input value={f.name} onChange={set("name")} placeholder="Finch Genesis" maxLength={32} />
         </div>
-        <div className="field">
+        <div className="mb-3">
           <label>symbol</label>
           <input value={f.symbol} onChange={set("symbol")} placeholder="GENESIS" maxLength={10} />
         </div>
       </div>
-      <div className="field">
+      <div className="mb-3">
         <label>
           description
-          <span className="spacer-inline dim">{f.description.length}/256</span>
+          <span className="float-right text-xs text-muted-foreground">{f.description.length}/256</span>
         </label>
         <input value={f.description} onChange={set("description")} maxLength={256} />
       </div>
-      <div className="field">
+      <div className="mb-3">
         <label>token image</label>
         <LogoPicker value={f.logo} onChange={(v) => setF((p) => ({ ...p, logo: v }))} />
       </div>
-      <div className="grid2">
-        <div className="field">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="mb-3">
           <label>X profile</label>
-          <div className="prefixed">
-            <span className="dim">x.com/</span>
+          <div className="flex items-center gap-0 rounded-md border border-input bg-transparent pl-3 focus-within:ring-1 focus-within:ring-ring">
+            <span className="text-muted-foreground">x.com/</span>
             <input value={f.twitter} onChange={set("twitter")} placeholder="handle" />
           </div>
         </div>
-        <div className="field">
+        <div className="mb-3">
           <label>telegram</label>
-          <div className="prefixed">
-            <span className="dim">t.me/</span>
+          <div className="flex items-center gap-0 rounded-md border border-input bg-transparent pl-3 focus-within:ring-1 focus-within:ring-ring">
+            <span className="text-muted-foreground">t.me/</span>
             <input value={f.telegram} onChange={set("telegram")} placeholder="community" />
           </div>
         </div>
-        <div className="field">
+        <div className="mb-3">
           <label>website</label>
           <input value={f.website} onChange={set("website")} />
         </div>
       </div>
 
-      <button type="button" className="adv-toggle" onClick={() => setAdvanced((v) => !v)}>
+      <button type="button" className="mb-3 w-full rounded-md py-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setAdvanced((v) => !v)}>
         {advanced ? "▾" : "▸"} advanced
       </button>
 
       <div style={{ display: advanced ? "block" : "none" }}>
-        <div className="field">
+        <div className="mb-3">
           <label>fee rights</label>
           <select value={f.bind} onChange={set("bind")}>
             <option value="none">mine, I keep the fees</option>
@@ -207,10 +207,10 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         </div>
 
       {f.bind !== "none" && (
-        <div className="field">
+        <div className="mb-3">
           <label>{f.bind === "repo" ? "repository" : "github username"}</label>
-          <div className="prefixed">
-            <span className="dim">github.com/</span>
+          <div className="flex items-center gap-0 rounded-md border border-input bg-transparent pl-3 focus-within:ring-1 focus-within:ring-ring">
+            <span className="text-muted-foreground">github.com/</span>
             <input
               value={f.githubHandle}
               onChange={set("githubHandle")}
@@ -218,7 +218,7 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
             />
           </div>
           <GithubBinding kind={f.bind} value={f.githubHandle} onResolved={setGithubId} />
-          <p className="dim" style={{ marginTop: 6 }}>
+          <p className="text-muted-foreground" style={{ marginTop: 6 }}>
             You earn nothing from this token — fees escrow until that GitHub {f.bind} claims them.
             The token stores the account's permanent numeric id, not the name, so a rename or a
             freed username cannot hand your fees to someone else.
@@ -227,28 +227,28 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       )}
 
       {f.bind === "none" && (
-        <div className="field">
+        <div className="mb-3">
           <label>
             fee recipient (optional)
-            <span className="spacer-inline dim">defaults to you</span>
+            <span className="float-right text-xs text-muted-foreground">defaults to you</span>
           </label>
           <input value={f.feeWallet} onChange={set("feeWallet")} placeholder="0x — any wallet you choose" />
-          <p className="dim" style={{ marginTop: 6 }}>
+          <p className="text-muted-foreground" style={{ marginTop: 6 }}>
             Where the creator share of trading fees is paid, fixed at launch. You keep control of
             the token either way.
           </p>
         </div>
       )}
 
-      <div className="field">
+      <div className="mb-3">
         <label>
           opening buy (optional)
           {ethUsd && f.creatorBuy ? (
-            <span className="spacer-inline dim">{usd(Number(f.creatorBuy) * ethUsd)}</span>
+            <span className="float-right text-xs text-muted-foreground">{usd(Number(f.creatorBuy) * ethUsd)}</span>
           ) : null}
         </label>
         <input value={f.creatorBuy} onChange={set("creatorBuy")} placeholder="0.0 ETH" inputMode="decimal" />
-        <p className="dim" style={{ marginTop: 6 }}>
+        <p className="text-muted-foreground" style={{ marginTop: 6 }}>
           Buy your own token in the same transaction, at the normal pool price through the public
           router — no discount and no reserved allocation. Without it you cannot be the first
           buyer: a separate transaction lands a block later, where anyone watching can get ahead
@@ -256,14 +256,14 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         </p>
       </div>
 
-        <div className="field">
+        <div className="mb-3">
           <label>referrer (optional)</label>
           <input value={f.referrer} onChange={set("referrer")} placeholder="0x, paid out of the protocol share" />
         </div>
       </div>
 
-      <div className="review">
-        <div className="kv mono">
+      <div className="rounded-lg border border-border bg-secondary/40 p-3">
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm tabular">
           <div>supply</div>
           <div>{CURVE_A.totalSupply.toLocaleString()} fixed, no mint function</div>
           <div>opening valuation</div>
@@ -291,7 +291,7 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       </div>
 
       {problems.length > 0 && (
-        <ul className="warn">
+        <ul className="text-destructive text-sm">
           {problems.map((p) => (
             <li key={p}>{p}</li>
           ))}
@@ -320,11 +320,11 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
       </div>
 
       {status.hash && (
-        <p className="dim" style={{ marginTop: 8 }}>
+        <p className="text-muted-foreground" style={{ marginTop: 8 }}>
           <a href={explorerTx(status.hash)} target="_blank" rel="noreferrer noopener">
             view transaction
           </a>
-          {status.token ? <> · token <span className="mono">{status.token}</span></> : null}
+          {status.token ? <> · token <span className="tabular">{status.token}</span></> : null}
         </p>
       )}
     </div>

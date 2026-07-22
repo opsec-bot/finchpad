@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 
 const MAX_INPUT_BYTES = 5 * 1024 * 1024; // reject huge files before decoding them
 const SIDE = 128; // token logos render small; 128px square is plenty
@@ -64,9 +65,9 @@ export default function LogoPicker({ value, onChange }: { value: string; onChang
 
   return (
     <div>
-      <div className="logo-row">
-        <div className="logo-preview">
-          {value ? <img src={value} alt="token" /> : <span className="dim">no image</span>}
+      <div className="flex items-start gap-3">
+        <div className="flex size-[72px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-secondary/40 text-center text-[11px] text-muted-foreground">
+          {value ? <img src={value} alt="token" className="size-full object-cover" /> : <span className="text-muted-foreground">no image</span>}
         </div>
         <div>
           <input
@@ -80,22 +81,22 @@ export default function LogoPicker({ value, onChange }: { value: string; onChang
               e.target.value = "";
             }}
           />
-          <button type="button" onClick={() => input.current?.click()} disabled={busy}>
-            {busy ? "processing…" : value ? "replace image" : "choose image"}
-          </button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => input.current?.click()} disabled={busy}>
+            {busy ? "Processing…" : value ? "Replace image" : "Choose image"}
+          </Button>
           {value && (
-            <button type="button" onClick={() => onChange("")} style={{ marginLeft: 6 }}>
-              remove
-            </button>
+            <Button type="button" variant="ghost" size="sm" className="ml-1.5" onClick={() => onChange("")}>
+              Remove
+            </Button>
           )}
-          <p className="dim" style={{ marginTop: 6, marginBottom: 0 }}>
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {value
               ? `cropped square, 128px, ~${approxKb} KB stored on-chain with the token`
               : "png, jpeg, webp or gif. Cropped square and downscaled in your browser."}
           </p>
         </div>
       </div>
-      {err && <p className="warn">{err}</p>}
+      {err && <p className="text-destructive text-sm">{err}</p>}
     </div>
   );
 }

@@ -25,24 +25,24 @@ export default function Chart({ candles, height = 320 }: { candles: Candle[]; he
       height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#8b98a5",
+        textColor: "#8FA3A6",
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize: 11,
       },
-      grid: { vertLines: { color: "#1c222a" }, horzLines: { color: "#1c222a" } },
-      rightPriceScale: { borderColor: "#232a32" },
-      timeScale: { borderColor: "#232a32", timeVisible: true, secondsVisible: false },
+      grid: { vertLines: { color: "#222C30" }, horzLines: { color: "#222C30" } },
+      rightPriceScale: { borderColor: "#2A363A" },
+      timeScale: { borderColor: "#2A363A", timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0 },
       handleScale: { axisPressedMouseMove: false },
     });
     chartRef.current = chart;
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#3fb950",
-      downColor: "#f85149",
+      upColor: "#7CB4B4",
+      downColor: "#E5484D",
       borderVisible: false,
-      wickUpColor: "#3fb950",
-      wickDownColor: "#f85149",
+      wickUpColor: "#93D0D1",
+      wickDownColor: "#E5484D",
       priceFormat: { type: "price", precision: 12, minMove: 1e-12 },
     });
 
@@ -64,10 +64,10 @@ export default function Chart({ candles, height = 320 }: { candles: Candle[]; he
 
   if (!candles.length) {
     return (
-      <div className="chart-empty dim" style={{ height }}>
-        no trades in range
+      <div className="flex items-center justify-center text-sm text-muted-foreground" style={{ height }}>
+        No trades yet
       </div>
     );
   }
-  return <div ref={ref} className="chart" />;
+  return <div ref={ref} className="w-full" />;
 }

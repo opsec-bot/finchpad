@@ -6,10 +6,10 @@ const fmt = (n: number, d = 4) => n.toLocaleString(undefined, { maximumFractionD
 
 function Row({ ok, label, value }: { ok: boolean | null; label: string; value: React.ReactNode }) {
   return (
-    <div className="tr-row">
-      <span className={ok === null ? "dim" : ok ? "ok" : "warn"}>{ok === null ? "•" : ok ? "✓" : "!"}</span>
-      <span className="dim">{label}</span>
-      <span className="mono">{value}</span>
+    <div className="grid grid-cols-[14px_112px_1fr] items-baseline gap-2 text-sm">
+      <span className={ok === null ? "text-muted-foreground" : ok ? "text-primary" : "text-destructive"}>{ok === null ? "•" : ok ? "✓" : "!"}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular">{value}</span>
     </div>
   );
 }
@@ -25,9 +25,9 @@ export default function Transparency({ t }: { t: TokenDetail }) {
   const unclaimed = t.github && !t.github.claimed;
 
   return (
-    <div className="panel">
-      <strong>what you are buying</strong>
-      <div className="tr" style={{ marginTop: 10 }}>
+    <div className="rounded-xl border border-border bg-card p-4">
+      <h3 className="font-semibold">What you are buying</h3>
+      <div className="flex flex-col gap-2" style={{ marginTop: 10 }}>
         <Row
           ok={t.knownToFactory}
           label="liquidity"
@@ -71,13 +71,13 @@ export default function Transparency({ t }: { t: TokenDetail }) {
       </div>
 
       {unclaimed && (
-        <p className="dim" style={{ marginTop: 10 }}>
+        <p className="text-muted-foreground" style={{ marginTop: 10 }}>
           This token was launched for a GitHub {t.github?.kind} that has not claimed it. The launcher earns
           nothing — the creator share accrues in escrow until the real owner claims it.
         </p>
       )}
       {!t.knownToFactory && (
-        <p className="warn" style={{ marginTop: 10 }}>
+        <p className="text-destructive text-sm" style={{ marginTop: 10 }}>
           This token did not come from the finchpad factory, so none of the guarantees above are enforced.
           Treat it as unverified.
         </p>

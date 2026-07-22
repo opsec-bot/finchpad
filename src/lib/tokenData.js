@@ -29,12 +29,14 @@ export function priceFromSqrt(sqrtPriceX96, tokenIsToken0) {
 
 /** Full detail for one launched token: metadata, pool, live price, graduation. */
 export async function getTokenDetail(token, factoryAddress) {
-  const [name, symbol, decimals, totalSupply, pool] = await Promise.all([
+  const [name, symbol, decimals, totalSupply, pool, logo] = await Promise.all([
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "name" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "symbol" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "decimals" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "totalSupply" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "liquidityPool" }),
+    // Creator artwork. Optional — older/foreign tokens may not expose it.
+    publicClient.readContract({ address: token, abi: tokenAbi, functionName: "logo" }).catch(() => ""),
   ]);
 
   const tokenIsToken0 = token.toLowerCase() < PONS.weth.toLowerCase();
@@ -94,6 +96,7 @@ export async function getTokenDetail(token, factoryAddress) {
     address: token,
     name,
     symbol,
+    logo: logo || null,
     decimals,
     totalSupply: supplyTokens,
     pool,

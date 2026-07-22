@@ -50,15 +50,15 @@ export default function GithubBinding({
   }, [kind, value]);
 
   if (state.s === "idle") return null;
-  if (state.s === "looking") return <p className="dim">checking GitHub…</p>;
-  if (state.s === "err") return <p className="warn">{state.msg}</p>;
+  if (state.s === "looking") return <p className="text-muted-foreground">checking GitHub…</p>;
+  if (state.s === "err") return <p className="text-destructive text-sm">{state.msg}</p>;
 
   return (
-    <div className="gh-ok">
+    <div className="mt-2 flex items-center gap-2 text-sm">
       {state.avatar && <img src={state.avatar} alt="" width={20} height={20} />}
-      <span className="ok">✓</span>
+      <span className="text-primary">✓</span>
       <span>{state.login}</span>
-      <span className="dim mono">binds to id {state.id}</span>
+      <span className="text-muted-foreground tabular">binds to id {state.id}</span>
     </div>
   );
 }

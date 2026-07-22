@@ -2,20 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, parseEther, maxUint256 } from "viem";
 import type { Address } from "viem";
 import { usePrivy } from "@privy-io/react-auth";
-import { useActiveWallet } from "./Wallet";
-import { useToast } from "./Toast";
-import { explorerTx } from "../lib/chain";
-import { erc20Abi } from "../lib/abis";
-import { getWalletClient, publicClient } from "../lib/tx";
-import { approveRouter, quote, readableError, routerAllowance, swap } from "../lib/trade";
-import type { Quote, Side } from "../lib/trade";
+import { toast } from "sonner";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { useActiveWallet } from "@/components/Wallet";
+import { explorerTx } from "@/lib/chain";
+import { erc20Abi } from "@/lib/abis";
+import { getWalletClient, publicClient } from "@/lib/tx";
+import { approveRouter, quote, readableError, routerAllowance, swap } from "@/lib/trade";
+import type { Quote, Side } from "@/lib/trade";
+import { useEthUsd, usd, amount as fmtAmount } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
-const AUTO_SLIPPAGE = 100; // bps — what "Auto" resolves to for a 1% pool
+const AUTO_SLIPPAGE = 100;
 const QUOTE_DEBOUNCE_MS = 350;
-
-const fmt = (n: number, d = 4) => n.toLocaleString(undefined, { maximumFractionDigits: d });
-const compact = (n: number) => (n >= 1e6 ? `${fmt(n / 1e6, 2)}M` : n >= 1e3 ? `${fmt(n / 1e3, 2)}k` : fmt(n, 4));
+const ETH_PRESETS = [0.01, 0.1, 0.5, 1];
+const PCT_PRESETS = [25, 50, 75, 100];
 
 export default function TradePanel({
   token,
@@ -32,12 +38,12 @@ export default function TradePanel({
 }) {
   const { authenticated, login } = usePrivy();
   const wallet = useActiveWallet();
-  const toast = useToast();
+  const ethUsd = useEthUsd();
 
   const [side, setSide] = useState<Side>("buy");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState<number | "auto">("auto");
-  const [customSlippage, setCustomSlippage] = useState("");
+  const [custom, setCustom] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
@@ -49,11 +55,7 @@ export default function TradePanel({
   const slippageBps = slippage === "auto" ? AUTO_SLIPPAGE : slippage;
 
   const refreshBalances = useCallback(async () => {
-    if (!wallet) {
-      setEthBalance(null);
-      setTokenBalance(null);
-      return;
-    }
+    if (!wallet) return setEthBalance(null), setTokenBalance(null);
     const addr = wallet.address as Address;
     const [eth, tok] = await Promise.all([
       publicClient.getBalance({ address: addr }),
@@ -67,11 +69,10 @@ export default function TradePanel({
     void refreshBalances();
   }, [refreshBalances]);
 
-  // Debounced quoting. A ref guards against a slow response overwriting a newer one.
+  // Debounced quoting; the ref stops a slow response overwriting a newer one.
   const seq = useRef(0);
   useEffect(() => {
-    const parsed = Number(amount);
-    if (!amount || !(parsed > 0)) {
+    if (!amount || !(Number(amount) > 0)) {
       setQ(null);
       setQuoteErr(null);
       setGasEth(null);
@@ -81,11 +82,19 @@ export default function TradePanel({
     setQuoting(true);
     const t = setTimeout(async () => {
       try {
-        const amountIn = parseEther(amount);
-        const result = await quote(publicClient, { token, pool, tokenIsToken0, side, amountIn, slippageBps });
+        const result = await quote(publicClient, {
+          token,
+          pool,
+          tokenIsToken0,
+          side,
+          amountIn: parseEther(amount),
+          slippageBps,
+        });
         if (mine !== seq.current) return;
         setQ(result);
         setQuoteErr(null);
+        const gasPrice = await publicClient.getGasPrice();
+        if (mine === seq.current) setGasEth(Number(formatEther(gasPrice * (side === "buy" ? 220_000n : 260_000n))));
       } catch (err) {
         if (mine !== seq.current) return;
         setQ(null);
@@ -97,47 +106,25 @@ export default function TradePanel({
     return () => clearTimeout(t);
   }, [amount, side, slippageBps, token, pool, tokenIsToken0]);
 
-  // Network fee estimate, refreshed alongside the quote.
-  useEffect(() => {
-    if (!q || !wallet) return setGasEth(null);
-    let cancelled = false;
-    (async () => {
-      try {
-        const gasPrice = await publicClient.getGasPrice();
-        // Swaps on a fresh V3 pool land around 150-250k; use a representative figure rather
-        // than a full estimateGas, which would need an approval that may not exist yet.
-        const units = side === "buy" ? 220_000n : 260_000n;
-        if (!cancelled) setGasEth(Number(formatEther(gasPrice * units)));
-      } catch {
-        if (!cancelled) setGasEth(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [q, wallet, side]);
-
   const balance = side === "buy" ? ethBalance : tokenBalance;
-  const balanceLabel = side === "buy" ? "ETH" : symbol;
 
-  const problems = useMemo(() => {
-    const p: string[] = [];
-    const parsed = Number(amount);
-    if (amount && !(parsed > 0)) p.push("Enter an amount greater than zero.");
-    if (amount && parsed > 0 && balance !== null) {
-      const want = parseEther(amount || "0");
-      if (side === "buy" && want >= balance) p.push("Amount exceeds your ETH balance (leave room for gas).");
-      if (side === "sell" && want > balance) p.push(`Amount exceeds your ${symbol} balance.`);
+  const problem = useMemo(() => {
+    if (!amount || !(Number(amount) > 0)) return null;
+    if (balance !== null) {
+      const want = parseEther(amount);
+      if (side === "buy" && want >= balance) return "Not enough ETH — leave a little for gas.";
+      if (side === "sell" && want > balance) return `Not enough ${symbol}.`;
     }
-    if (slippage !== "auto" && (slippageBps <= 0 || slippageBps > 5000)) p.push("Slippage must be between 0% and 50%.");
-    return p;
+    if (slippage !== "auto" && (slippageBps <= 0 || slippageBps > 5000)) return "Slippage must be between 0% and 50%.";
+    return null;
   }, [amount, balance, side, symbol, slippage, slippageBps]);
 
-  const canTrade = authenticated && wallet && q && problems.length === 0 && !busy && !quoting;
+  const canTrade = authenticated && wallet && q && !problem && !busy && !quoting;
+  const impactPct = q ? q.priceImpact * 100 : 0;
 
   function setPercent(pct: number) {
     if (balance === null) return;
-    // On a buy, keep a little ETH back for gas rather than handing over a doomed transaction.
+    // Keep a sliver of ETH back for gas rather than handing over a doomed transaction.
     const usable = side === "buy" ? (balance * 99n) / 100n : balance;
     setAmount(formatEther((usable * BigInt(pct)) / 100n));
   }
@@ -145,7 +132,7 @@ export default function TradePanel({
   async function execute() {
     if (!wallet || !q) return;
     setBusy(true);
-    const pendingId = toast.push({ kind: "pending", title: side === "buy" ? "Buying" : "Selling", body: "Confirm in your wallet" });
+    const id = toast.loading(side === "buy" ? "Confirm the purchase in your wallet" : "Confirm the sale in your wallet");
     try {
       const client = await getWalletClient(wallet);
       const amountIn = parseEther(amount);
@@ -153,172 +140,192 @@ export default function TradePanel({
       if (side === "sell") {
         const allowance = await routerAllowance(publicClient, token, wallet.address as Address);
         if (allowance < amountIn) {
-          toast.update(pendingId, { title: "Approval needed", body: `Allow the router to spend ${symbol}` });
+          toast.loading(`Approve ${symbol} first`, { id });
           const approveHash = await approveRouter(client, publicClient, token, maxUint256);
-          toast.update(pendingId, { title: "Approving", body: "Waiting for confirmation" });
+          toast.loading("Approving…", { id });
           await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          toast.loading("Confirm the sale in your wallet", { id });
         }
       }
 
-      toast.update(pendingId, { title: side === "buy" ? "Buying" : "Selling", body: "Confirm in your wallet" });
       const hash = await swap(client, publicClient, { token, side, amountIn, minOut: q.minReceived });
-
-      toast.update(pendingId, { title: "Submitted", body: "Waiting for confirmation", href: explorerTx(hash) });
+      toast.loading("Submitted — waiting for confirmation", { id });
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted");
 
-      toast.update(pendingId, {
-        kind: "success",
-        title: side === "buy" ? `Bought ${symbol}` : `Sold ${symbol}`,
-        body:
+      toast.success(side === "buy" ? `Bought ${symbol}` : `Sold ${symbol}`, {
+        id,
+        description:
           side === "buy"
-            ? `~${compact(Number(formatEther(q.amountOut)))} ${symbol} for ${fmt(Number(amount), 6)} ETH`
-            : `~${fmt(Number(formatEther(q.amountOut)), 6)} ETH for ${compact(Number(amount))} ${symbol}`,
-        href: explorerTx(hash),
+            ? `${fmtAmount(Number(formatEther(q.amountOut)))} ${symbol}`
+            : `${Number(formatEther(q.amountOut)).toFixed(6)} ETH`,
+        action: { label: "View", onClick: () => window.open(explorerTx(hash), "_blank", "noopener") },
       });
       setAmount("");
       setQ(null);
       await refreshBalances();
       onTraded();
     } catch (err) {
-      toast.update(pendingId, { kind: "error", title: "Trade failed", body: readableError(err) });
+      toast.error("Trade failed", { id, description: readableError(err) });
     } finally {
       setBusy(false);
     }
   }
 
-  const impactPct = q ? q.priceImpact * 100 : 0;
-  const impactClass = impactPct >= 15 ? "warn" : impactPct >= 5 ? "caution" : "dim";
+  const out = q ? Number(formatEther(q.amountOut)) : 0;
+  const min = q ? Number(formatEther(q.minReceived)) : 0;
 
   return (
-    <div className="panel">
-      <div className="tabs">
-        <button className={side === "buy" ? "tab active buy" : "tab"} onClick={() => { setSide("buy"); setAmount(""); }} disabled={busy}>
-          buy
-        </button>
-        <button className={side === "sell" ? "tab active sell" : "tab"} onClick={() => { setSide("sell"); setAmount(""); }} disabled={busy}>
-          sell
-        </button>
-      </div>
+    <Card className="p-4">
+      <Tabs value={side} onValueChange={(v) => (setSide(v as Side), setAmount(""))}>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="buy" disabled={busy} className="data-[state=active]:text-primary">
+            Buy
+          </TabsTrigger>
+          <TabsTrigger value="sell" disabled={busy} className="data-[state=active]:text-destructive">
+            Sell
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      <div className="field" style={{ marginTop: 12 }}>
-        <label>
-          {side === "buy" ? "you pay (ETH)" : `you sell (${symbol})`}
+      <div className="mt-4 space-y-1.5">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="text-muted-foreground">{side === "buy" ? "You pay" : "You sell"}</span>
           {balance !== null && (
-            <span className="spacer-inline dim">
-              balance {side === "buy" ? fmt(Number(formatEther(balance)), 4) : compact(Number(formatEther(balance)))}{" "}
-              {balanceLabel}
-            </span>
-          )}
-        </label>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder="0.0"
-          disabled={busy}
-        />
-        <div className="pcts">
-          {(side === "buy" ? [0.01, 0.1, 0.5, 1] : [25, 50, 75, 100]).map((v) =>
-            side === "buy" ? (
-              <button key={v} onClick={() => setAmount(String(v))} disabled={busy}>
-                {v} ETH
-              </button>
-            ) : (
-              <button key={v} onClick={() => setPercent(v)} disabled={busy || balance === null}>
-                {v}%
-              </button>
-            ),
-          )}
-        </div>
-      </div>
-
-      <div className="field">
-        <label>slippage tolerance</label>
-        <div className="pcts">
-          <button className={slippage === "auto" ? "sel" : ""} onClick={() => setSlippage("auto")} disabled={busy}>
-            auto
-          </button>
-          {SLIPPAGE_PRESETS.map((bps) => (
-            <button key={bps} className={slippage === bps ? "sel" : ""} onClick={() => setSlippage(bps)} disabled={busy}>
-              {bps / 100}%
+            <button
+              className="text-xs text-muted-foreground transition-colors hover:text-primary"
+              onClick={() => setPercent(100)}
+            >
+              Balance {side === "buy" ? Number(formatEther(balance)).toFixed(4) : fmtAmount(Number(formatEther(balance)))}
             </button>
-          ))}
-          <input
-            className="slip"
+          )}
+        </div>
+        <div className="relative">
+          <Input
             inputMode="decimal"
-            placeholder="custom"
-            value={customSlippage}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9.]/g, "");
-              setCustomSlippage(v);
-              if (v) setSlippage(Math.round(Number(v) * 100));
-            }}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0.0"
             disabled={busy}
+            className="tabular h-14 pr-20 text-2xl font-semibold"
           />
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+            {side === "buy" ? "ETH" : symbol}
+          </span>
+        </div>
+        {ethUsd && amount && Number(amount) > 0 && side === "buy" && (
+          <div className="text-xs text-muted-foreground tabular">≈ {usd(Number(amount) * ethUsd)}</div>
+        )}
+
+        <div className="grid grid-cols-4 gap-1.5 pt-1">
+          {(side === "buy" ? ETH_PRESETS : PCT_PRESETS).map((v) => (
+            <Button
+              key={v}
+              variant="secondary"
+              size="sm"
+              disabled={busy || (side === "sell" && balance === null)}
+              onClick={() => (side === "buy" ? setAmount(String(v)) : setPercent(v))}
+              className="text-xs"
+            >
+              {side === "buy" ? (ethUsd ? usd(v * ethUsd) : `${v} ETH`) : `${v}%`}
+            </Button>
+          ))}
         </div>
       </div>
 
-      <div className="review">
-        <div className="kv mono">
-          <div>you receive</div>
-          <div>
-            {quoting ? (
-              <span className="dim">quoting…</span>
-            ) : q ? (
-              side === "buy" ? (
-                `${compact(Number(formatEther(q.amountOut)))} ${symbol}`
-              ) : (
-                `${fmt(Number(formatEther(q.amountOut)), 6)} ETH`
-              )
-            ) : (
-              <span className="dim">—</span>
+      <Separator className="my-4" />
+
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">You receive</span>
+          <span className="tabular font-medium">
+            {quoting ? "…" : q ? (side === "buy" ? `${fmtAmount(out)} ${symbol}` : `${out.toFixed(6)} ETH`) : "—"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Minimum received</span>
+          <span className="tabular text-muted-foreground">
+            {q ? (side === "buy" ? `${fmtAmount(min)} ${symbol}` : `${min.toFixed(6)} ETH`) : "—"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Price impact</span>
+          <span
+            className={cn(
+              "tabular",
+              impactPct >= 15 ? "text-destructive" : impactPct >= 5 ? "text-highlight" : "text-muted-foreground",
             )}
+          >
+            {q ? `${impactPct.toFixed(2)}%` : "—"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Network fee</span>
+          <span className="tabular text-muted-foreground">
+            {gasEth !== null ? (ethUsd ? usd(gasEth * ethUsd) : `${gasEth.toFixed(6)} ETH`) : "—"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-muted-foreground">Slippage</span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant={slippage === "auto" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setSlippage("auto")}
+              disabled={busy}
+            >
+              Auto
+            </Button>
+            {SLIPPAGE_PRESETS.map((bps) => (
+              <Button
+                key={bps}
+                variant={slippage === bps ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setSlippage(bps)}
+                disabled={busy}
+              >
+                {bps / 100}%
+              </Button>
+            ))}
+            <Input
+              value={custom}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9.]/g, "");
+                setCustom(v);
+                if (v) setSlippage(Math.round(Number(v) * 100));
+              }}
+              placeholder="%"
+              disabled={busy}
+              className="h-7 w-14 px-2 text-xs"
+            />
           </div>
-          <div>minimum received</div>
-          <div>
-            {q ? (
-              side === "buy" ? (
-                `${compact(Number(formatEther(q.minReceived)))} ${symbol}`
-              ) : (
-                `${fmt(Number(formatEther(q.minReceived)), 6)} ETH`
-              )
-            ) : (
-              <span className="dim">—</span>
-            )}
-            {q && <span className="dim"> @ {slippageBps / 100}%</span>}
-          </div>
-          <div>price impact</div>
-          <div className={q ? impactClass : "dim"}>
-            {q ? `${fmt(impactPct, 2)}%` : "—"}
-            {q && impactPct >= 15 && " — very high"}
-          </div>
-          <div>network fee</div>
-          <div>{gasEth !== null ? `~${fmt(gasEth, 6)} ETH` : <span className="dim">—</span>}</div>
         </div>
       </div>
 
-      {quoteErr && <p className="warn">{quoteErr}</p>}
-      {problems.map((p) => (
-        <p key={p} className="warn">
-          {p}
-        </p>
-      ))}
+      {(quoteErr || problem) && <p className="mt-3 text-sm text-destructive">{quoteErr ?? problem}</p>}
       {q && impactPct >= 15 && (
-        <p className="warn">
-          This trade moves the price by {fmt(impactPct, 1)}%. The pool is thin — consider a smaller size.
+        <p className="mt-3 text-sm text-destructive">
+          This moves the price {impactPct.toFixed(1)}%. The pool is thin — try a smaller size.
         </p>
       )}
 
       {!authenticated ? (
-        <button className="primary wide" onClick={login}>
-          connect wallet to trade
-        </button>
+        <Button className="mt-4 w-full" size="lg" onClick={login}>
+          Connect wallet
+        </Button>
       ) : (
-        <button className={`primary wide ${side}`} disabled={!canTrade} onClick={execute}>
-          {busy ? "working…" : quoting ? "quoting…" : side === "buy" ? `buy ${symbol}` : `sell ${symbol}`}
-        </button>
+        <Button
+          className={cn("mt-4 w-full", side === "sell" && "bg-destructive text-white hover:bg-destructive/90")}
+          size="lg"
+          disabled={!canTrade}
+          onClick={execute}
+        >
+          {busy ? "Working…" : quoting ? "Quoting…" : side === "buy" ? `Buy ${symbol}` : `Sell ${symbol}`}
+        </Button>
       )}
-    </div>
+    </Card>
   );
 }

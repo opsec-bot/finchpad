@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { Button } from "@/components/ui/button";
 import { robinhoodChain } from "../lib/chain";
 import { switchToRobinhood } from "../lib/tx";
 
@@ -16,12 +17,12 @@ export function WalletButton() {
   const wallet = useActiveWallet();
   const [switchErr, setSwitchErr] = useState<string | null>(null);
 
-  if (!ready) return <span className="dim">…</span>;
+  if (!ready) return <span className="text-muted-foreground">…</span>;
   if (!authenticated) {
     return (
-      <button className="primary" onClick={login}>
-        connect wallet
-      </button>
+      <Button size="sm" onClick={login}>
+        Connect wallet
+      </Button>
     );
   }
   const label = wallet ? short(wallet.address) : (user?.email?.address ?? "connected");
@@ -31,7 +32,9 @@ export function WalletButton() {
         {label}
       </span>
       {wallet && wallet.chainId !== `eip155:${robinhoodChain.id}` && (
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => {
             setSwitchErr(null);
             switchToRobinhood(wallet).catch((e: Error) =>
@@ -39,11 +42,11 @@ export function WalletButton() {
             );
           }}
         >
-          switch to chain {robinhoodChain.id}
-        </button>
+          Switch to {robinhoodChain.id}
+        </Button>
       )}
-      {switchErr && <span className="warn">{switchErr}</span>}
-      <button onClick={logout}>disconnect</button>
+      {switchErr && <span className="text-destructive text-sm">{switchErr}</span>}
+      <Button variant="ghost" size="sm" onClick={logout}>Disconnect</Button>
     </>
   );
 }

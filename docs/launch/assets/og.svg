@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0A1F1D"/>
+  <g opacity="0.14">
+    <g fill="#86d4d2">
+      <rect x="640" y="430" width="34" height="110" rx="4"/><rect x="655" y="400" width="4" height="170"/>
+      <rect x="714" y="360" width="34" height="120" rx="4"/><rect x="729" y="330" width="4" height="180"/>
+      <rect x="862" y="210" width="34" height="150" rx="4"/><rect x="877" y="180" width="4" height="210"/>
+      <rect x="936" y="120" width="34" height="170" rx="4"/><rect x="951" y="90" width="4" height="230"/>
+    </g>
+    <g fill="#f85149">
+      <rect x="788" y="320" width="34" height="90" rx="4"/><rect x="803" y="295" width="4" height="140"/>
+    </g>
+  </g>
+  <g transform="translate(770,85) scale(0.84)">
+    <path fill="#86d2d0" d="M357 35h13l10 2 13 5 8 4v2l4 2 6 4 3 4v2l3 1 6 10 3 4 2 5 9 3 13 5 13 4 8 2 26 8v3l-15 5-9 2-9 3-18 5-8 3-9 2-3 14v21l2 16 3 13 2 17v35l-2 18-8 27-3 7h-2l-2 10h-2l-3 9-8 11-9 13h-2l-2 5-15 15h-2v2l-5 2v2l-8 6-21 14-14 6-7 1v2l-12 4-6 2-7 2-31 4h-42l-8-1-1-2 6-3 13-5 5-2 7-2 5-3h4v-2l8-3 13-5 11-5h3v-2l14-5 7-5 6-1 2-4 9-7 1-2h3l1-5 5-1 1-3h2l1-3h2l2-4 8-9 1-3 3-3 4-9h2l2-8 4-12 1-7 2-5v-30l-4-16-3-10-6-10-10-13v-2l-4-2-3-3v-2l-5-2-9-6-4-3-8-3-10-4-7-2-15-1-29-1 2-6 6-9h2l2-5 5-6 3-10 2-6v-16l-5-2h-11l-12 2h-6v-3h2v-2l8-7 4-2v-2l8-7 3-3 3-1 3-3h2v-2l10-7h3l2-4 7-4h2v-2l10-4 14-7 12-5 13-2 2-1Z"/>
+    <path fill="#86d4d2" d="M260 193h24l9 2 9 3 11 6 11 8v2l3 1 1 3 2 1 3 10 4 7 2 6v28l-2 6-1 4h-2l-1 6-6 10-5 9-8 9-5 5-10 9-4 1-1 4-6 3-11 5h-3v2l-8 3-6 1v2l-11 4h-4v2l-11 4h-3v2l-7 1v2l-13 5-20 8-11 5-7 1v2l-15 6-6 1v2l-10 4-4 2h-4l-1 8-7 16-5 15-7 4-11 5-11 5-8 4-9 3-2 2-8 1v2l-11 4h-2v2l-9 2-10 5-13 5-7 4-3-1 3-5 7-10 1-2h2l1-4h2l2-4 7-10 1-2h2l2-4 7-10 1-2h2l1-4h2l2-5 5-5 2-2 2-5 5-7h2l2-5 7-9 1-2h2l2-5 12-16 5-8h2l1-4h2l2-4 10-14 13-17 4-6 4-5 5-6 4-6 5-6 7-11 9-12 2-1 4-7h2l1-4h2l2-5 12-16 4-6 5-5 3-5 5-5 12-9 5-3h3v-2l18-6Z"/>
+    <path fill="#69a2a1" d="M260 193h24l9 2 9 3 11 6 11 8v2l3 1 1 3 2 1 3 10 4 7 2 6v28l-2 6-1 4h-2l-1 6-6 10-5 9-8 9-5 5-10 9-4 1-1 4-6 3-11 5h-3v2l-8 3-6 1v2l-6 1 2-4 5-5 5-5 6-4 2-4 3-3 8-12 5-8 4-9 3-12 3-9v-27l-3-10-5-12-6-11-5-4-4-4-8-5v-2l-11-3h-7l-7 1 3-2Z"/>
+    <circle cx="377.5" cy="91" r="13.5" fill="#0A1F1D"/>
+  </g>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="80" y="270" font-size="92" font-weight="700" letter-spacing="1" fill="#F8F9FA">FINCH<tspan fill="#86d4d2">PAD</tspan></text>
+    <text x="84" y="345" font-size="34" fill="#F8F9FA">launch a token. keep 80% of the fees.</text>
+    <text x="84" y="405" font-size="24" fill="#A3B8B5">liquidity locked at birth &#183; no bonding curve</text>
+    <text x="84" y="443" font-size="24" fill="#A3B8B5">referrals that pay forever &#183; fees drop as you grow</text>
+    <text x="84" y="520" font-size="24" font-weight="700" fill="#FFEA80">on Robinhood Chain</text>
+  </g>
+  <rect x="0" y="622" width="1200" height="8" fill="#86d4d2"/>
+</svg>

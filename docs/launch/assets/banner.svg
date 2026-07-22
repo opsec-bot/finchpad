@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500">
+  <defs>
+    <radialGradient id="room" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#8fdcd4"/>
+      <stop offset="35%" stop-color="#3f847c"/>
+      <stop offset="70%" stop-color="#16403c"/>
+      <stop offset="100%" stop-color="#0a1f1d"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7cc9c1"/>
+      <stop offset="40%" stop-color="#2e6b64"/>
+      <stop offset="100%" stop-color="#081815"/>
+    </linearGradient>
+    <linearGradient id="glassT" gradientUnits="userSpaceOnUse" x1="0" y1="200" x2="0" y2="330">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="45%" stop-color="#e8fbf8"/>
+      <stop offset="78%" stop-color="#bfe9e3"/>
+      <stop offset="100%" stop-color="#8fd0c8"/>
+    </linearGradient>
+    <linearGradient id="fadeout" gradientUnits="userSpaceOnUse" x1="0" y1="322" x2="0" y2="470">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.5"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="reflFade">
+      <rect x="0" y="0" width="1500" height="500" fill="url(#fadeout)"/>
+    </mask>
+    <filter id="blurBig" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="26"/></filter>
+    <filter id="blurMed" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
+    <filter id="blurSm" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1500" height="330" fill="url(#room)"/>
+  <rect y="330" width="1500" height="170" fill="url(#floor)"/>
+  <!-- light pool on floor -->
+  <ellipse cx="750" cy="360" rx="480" ry="60" fill="#aef0e8" opacity="0.4" filter="url(#blurBig)"/>
+  <ellipse cx="750" cy="345" rx="260" ry="26" fill="#eafffb" opacity="0.5" filter="url(#blurMed)"/>
+
+  <!-- reflection -->
+  <text x="750" y="322" text-anchor="middle" transform="translate(0,644) scale(1,-1)"
+        font-family="DejaVu Sans, sans-serif" font-size="118" font-weight="700" letter-spacing="2"
+        fill="#d5f6f1" mask="url(#reflFade)" opacity="0.5" filter="url(#blurMed)">Creator focused</text>
+
+  <!-- glow behind text -->
+  <text x="750" y="322" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="118"
+        font-weight="700" letter-spacing="2" fill="#bff5ec" opacity="0.75" filter="url(#blurBig)">Creator focused</text>
+
+  <!-- glass text -->
+  <text x="750" y="322" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="118"
+        font-weight="700" letter-spacing="2" fill="none" stroke="#ffffff" stroke-width="5"
+        opacity="0.9" filter="url(#blurSm)">Creator focused</text>
+  <text x="750" y="322" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="118"
+        font-weight="700" letter-spacing="2" fill="url(#glassT)">Creator focused</text>
+
+  <!-- sparkles -->
+  <g fill="#ffffff">
+    <path d="M245 205 l3.5 14 14 3.5 -14 3.5 -3.5 14 -3.5 -14 -14 -3.5 14 -3.5 Z" opacity="0.95"/>
+    <path d="M1258 235 l3 12 12 3 -12 3 -3 12 -3 -12 -12 -3 12 -3 Z" opacity="0.9"/>
+    <path d="M1130 180 l2 8 8 2 -8 2 -2 8 -2 -8 -8 -2 8 -2 Z" opacity="0.7"/>
+    <path d="M370 330 l3 12 12 3 -12 3 -3 12 -3 -12 -12 -3 12 -3 Z" opacity="0.9"/>
+    <path d="M900 90 l2.5 10 10 2.5 -10 2.5 -2.5 10 -2.5 -10 -10 -2.5 10 -2.5 Z" opacity="0.75"/>
+  </g>
+
+  <linearGradient id="topShade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#04100e" stop-opacity="0.75"/>
+    <stop offset="30%" stop-color="#04100e" stop-opacity="0"/>
+  </linearGradient>
+  <rect width="1500" height="500" fill="url(#topShade)"/>
+  <linearGradient id="vigL" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#07110f" stop-opacity="0.9"/>
+    <stop offset="25%" stop-color="#07110f" stop-opacity="0"/>
+    <stop offset="75%" stop-color="#07110f" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#07110f" stop-opacity="0.9"/>
+  </linearGradient>
+  <rect width="1500" height="500" fill="url(#vigL)"/>
+</svg>

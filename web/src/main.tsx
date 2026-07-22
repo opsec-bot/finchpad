@@ -34,7 +34,7 @@ function Root() {
       config={{
         defaultChain: robinhoodChain,
         supportedChains: [robinhoodChain],
-        appearance: { theme: "dark", accentColor: "#ffb84d", logo: undefined },
+        appearance: { theme: "dark", accentColor: "#7CB4B4", logo: "/logo.svg" },
         // Give people who have no wallet a way in — the whole point of creator onboarding.
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
         loginMethods: ["wallet", "email", "google", "github"],

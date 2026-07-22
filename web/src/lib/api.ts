@@ -23,6 +23,7 @@ export interface TokenDetail {
   address: `0x${string}`;
   name: string;
   symbol: string;
+  logo: string | null;
   decimals: number;
   totalSupply: number;
   pool: `0x${string}`;
