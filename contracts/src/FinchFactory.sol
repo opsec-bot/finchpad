@@ -25,8 +25,6 @@ contract FinchFactory is ReentrancyGuard {
 
     uint24 public constant POOL_FEE = 10_000; // 1%
     uint256 public constant LAUNCH_FEE = 0.0005 ether;
-    /// @notice Curve A graduation marker. Cosmetic: trading continues in the same pool.
-    uint256 public constant GRADUATION_THRESHOLD = 4.2 ether;
 
     address public immutable tokenImplementation;
     INonfungiblePositionManager public immutable positionManager;
@@ -52,6 +50,8 @@ contract FinchFactory is ReentrancyGuard {
         int24 tickLower; // single-sided range for the full supply
         int24 tickUpper;
         uint64 restrictionBlocks; // anti-snipe window length
+        address referrer; // who referred this launch; earns a slice of the protocol fee share.
+            // address(0) = no referral. May not be the launcher (see SelfReferral).
     }
 
     event Launched(
@@ -61,6 +61,7 @@ contract FinchFactory is ReentrancyGuard {
     error LockerAlreadySet();
     error LockerNotSet();
     error NotAdmin();
+    error SelfReferral();
     error InsufficientLaunchFee();
     error FeeForwardFailed();
     error RefundFailed();
@@ -95,21 +96,27 @@ contract FinchFactory is ReentrancyGuard {
     }
 
     /**
-     * @notice Graduation progress for a launched token.
-     * @dev pairedPrincipal is the WETH sitting in the token's pool. Our single locked
-     *      position is the only liquidity and WETH only enters via buys, so the pool's WETH
-     *      balance tracks progress. It slightly overstates principal while uncollected fees
-     *      sit in the pool — fine for a cosmetic progress marker.
+     * @notice Graduation progress for a launched token — the SAME number the fee bonus uses.
+     * @dev Delegates to the locker's protocol-controlled accounting (lifetime WETH fees this
+     *      token's locked position has actually paid out). Deliberately not a pool-balance
+     *      read: that could be moved by transferring WETH straight to the pool, which would
+     *      let anyone fake visible traction to lure buyers even once no money depended on it.
+     *      One metric, one source of truth, unmanipulable without paying real swap fees.
+     *
+     *      Progress advances when fees are harvested, so it steps on each collect() rather
+     *      than sliding with every trade. collect() is permissionless, so the UI or any
+     *      keeper can poke it; creators call it anyway to get paid.
+     * @return earned lifetime WETH fees collected for this token
+     * @return threshold the fee total at which the token counts as graduated
+     * @return graduated whether earned >= threshold
      */
     function graduationStatus(address token)
         external
         view
-        returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)
+        returns (uint256 earned, uint256 threshold, bool graduated)
     {
-        address pool = FinchToken(token).liquidityPool();
-        pairedPrincipal = pool == address(0) ? 0 : IERC20(weth).balanceOf(pool);
-        threshold = GRADUATION_THRESHOLD;
-        graduated = pairedPrincipal >= threshold;
+        if (address(locker) == address(0)) return (0, 0, false);
+        (earned, threshold, graduated) = locker.graduationOf(token);
     }
 
     function launch(LaunchParams calldata p)
@@ -120,6 +127,8 @@ contract FinchFactory is ReentrancyGuard {
     {
         if (address(locker) == address(0)) revert LockerNotSet();
         if (msg.value < LAUNCH_FEE) revert InsufficientLaunchFee();
+        // A launcher can't refer themselves — that would just skim their own protocol fees.
+        if (p.referrer == msg.sender) revert SelfReferral();
 
         // 1. Clone + initialize the token; full supply is minted to this factory.
         token = Clones.clone(tokenImplementation);
@@ -172,7 +181,9 @@ contract FinchFactory is ReentrancyGuard {
         if (dust > 0) IERC20(token).safeTransfer(msg.sender, dust);
 
         // 5. Register the launch with the locker (fee split snapshot + control = creator).
-        locker.registerLaunch(token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId);
+        locker.registerLaunch(
+            token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId, p.referrer
+        );
 
         // 6. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
         //    msg.value would silently pocket a fat-fingered 1 ETH on a 0.0005 ETH fee.

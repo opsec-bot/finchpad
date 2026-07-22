@@ -28,6 +28,8 @@ contract ForkLaunchTest is Test {
     uint160 constant SQRT_A_TOKEN0 = 2505414483750479311864138;
     uint160 constant SQRT_A_TOKEN1 = 2505414483750479311864138015696063;
 
+    uint256 constant GRAD_FEE_THRESHOLD = 0.25 ether;
+
     FinchToken impl;
     FinchFactory factory;
     FinchLocker locker;
@@ -46,7 +48,8 @@ contract ForkLaunchTest is Test {
 
         impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin);
-        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin);
+        // No referral / no graduation bonus here so the 80/20 fork assertions stay exact.
+        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin, 0, 0, GRAD_FEE_THRESHOLD);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
 
         vm.startPrank(admin);
@@ -83,7 +86,8 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3
+            restrictionBlocks: 3,
+            referrer: address(0)
         });
 
         deal(creator, 1 ether);
@@ -112,7 +116,7 @@ contract ForkLaunchTest is Test {
         // LP locked; control = creator; 80/20 snapshot
         assertEq(INonfungiblePositionManager(POSITION_MANAGER).ownerOf(positionId), address(locker), "locker owns LP");
         assertEq(locker.controllerOf(token), creator, "creator controls fee rights");
-        (, uint16 protocolBps,,,,,,,,,,) = locker.launches(token);
+        (, uint16 protocolBps,,,,,,,,,,,,) = locker.launches(token);
         assertEq(protocolBps, 2000, "80/20 split snapshotted");
 
         assertEq(feeRecipient.balance, 0.0005 ether, "launch fee forwarded");
@@ -141,7 +145,8 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3
+            restrictionBlocks: 3,
+            referrer: address(0)
         });
 
         deal(creator, 5 ether);
@@ -216,10 +221,11 @@ contract ForkLaunchTest is Test {
     function test_fork_buyMovesGraduationProgress() public {
         (address token,,,) = _launchCurveA();
 
-        // At launch: no WETH paired, not graduated.
-        (uint256 principal0, uint256 threshold, bool graduated0) = factory.graduationStatus(token);
-        assertEq(principal0, 0, "no WETH paired at launch");
-        assertEq(threshold, 4.2 ether, "curve A graduation threshold");
+        // At launch: nothing earned, not graduated. graduationStatus now reports the SAME
+        // protocol-controlled accounting the fee bonus uses, not a pool-balance read.
+        (uint256 earned0, uint256 threshold, bool graduated0) = factory.graduationStatus(token);
+        assertEq(earned0, 0, "nothing earned at launch");
+        assertEq(threshold, GRAD_FEE_THRESHOLD, "threshold comes from the locker");
         assertFalse(graduated0, "not graduated at launch");
 
         // Move past the anti-snipe window so anyone can buy.
@@ -246,11 +252,24 @@ contract ForkLaunchTest is Test {
         assertGt(out, 0, "buyer received tokens");
         assertEq(IERC20(token).balanceOf(buyer), out, "tokens delivered to buyer");
 
-        // Graduation progress moved with the paired WETH.
-        (uint256 principal1,, bool graduated1) = factory.graduationStatus(token);
-        assertGt(principal1, principal0, "paired principal increased after buy");
-        assertFalse(graduated1, "0.05 ETH is well under the 4.2 ETH threshold");
+        // A buy alone does not move progress — fees have to be harvested first. This is the
+        // point of the design: progress tracks money the protocol actually accounted for.
+        (uint256 earnedBeforeCollect,,) = factory.graduationStatus(token);
+        assertEq(earnedBeforeCollect, 0, "uncollected fees are not yet counted");
+
+        // Harvest: the real 1% fee on that buy becomes real WETH fees, and progress steps up.
+        locker.collect(token);
+        (uint256 earned1,, bool graduated1) = factory.graduationStatus(token);
+        assertGt(earned1, earned0, "progress advanced after collecting real swap fees");
+        assertApproxEqRel(earned1, amountIn / 100, 0.01e18, "~1% of the buy, as WETH fees");
+        assertFalse(graduated1, "one 0.05 ETH buy is well under the threshold");
+
+        // And the number the UI reads is exactly the number the fee bonus reads.
+        (uint256 lockerEarned,, bool lockerGraduated) = locker.graduationOf(token);
+        assertEq(lockerEarned, earned1, "factory and locker report one metric");
+        assertEq(lockerGraduated, graduated1, "one source of truth");
+
         emit log_named_uint("tokens bought for 0.05 WETH", out);
-        emit log_named_uint("paired principal (wei)", principal1);
+        emit log_named_decimal_uint("graduation progress (WETH fees)", earned1, 18);
     }
 }

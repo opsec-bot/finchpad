@@ -35,7 +35,7 @@ contract FeeRightsRegistryTest is Test {
         MockPositionManager pm = new MockPositionManager();
         MockERC20 weth = new MockERC20("W", "W");
         // This test contract is the factory.
-        locker = new FinchLocker(address(this), address(pm), address(weth), protocol, admin);
+        locker = new FinchLocker(address(this), address(pm), address(weth), protocol, admin, 0, 0, type(uint256).max);
         vm.prank(admin);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
         vm.prank(admin);
@@ -44,9 +44,9 @@ contract FeeRightsRegistryTest is Test {
         plainToken = address(new MockERC20("P", "P"));
         repoToken = address(new MockERC20("R", "R"));
         userToken = address(new MockERC20("U", "U"));
-        locker.registerLaunch(plainToken, 1, 2000, true, creator, ClaimKind.None, 0);
-        locker.registerLaunch(repoToken, 2, 2000, true, creator, ClaimKind.Repo, REPO_ID);
-        locker.registerLaunch(userToken, 3, 2000, true, creator, ClaimKind.User, USER_ID);
+        locker.registerLaunch(plainToken, 1, 2000, true, creator, ClaimKind.None, 0, address(0));
+        locker.registerLaunch(repoToken, 2, 2000, true, creator, ClaimKind.Repo, REPO_ID, address(0));
+        locker.registerLaunch(userToken, 3, 2000, true, creator, ClaimKind.User, USER_ID, address(0));
     }
 
     // --- controller-signed ---

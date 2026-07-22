@@ -70,13 +70,37 @@ export const factoryAbi = parseAbi([
 /// function) — launch state lives in the locker, reachable via factory.locker().
 export const finchFactoryAbi = parseAbi([
   "function locker() view returns (address)",
-  "function graduationStatus(address token) view returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)",
+  "function graduationStatus(address token) view returns (uint256 earned, uint256 threshold, bool graduated)",
 ]);
 
 export const finchLockerAbi = parseAbi([
-  "function launches(address token) view returns (uint256 positionId, uint16 protocolShareBps, bool tokenIsToken0, address controller, address feeWallet, uint8 claimKind, uint256 githubId, bool githubClaimed, uint64 escrowDeadline, uint256 escrowedToken, uint256 escrowedWeth, bool exists)",
+  "function launches(address token) view returns (uint256 positionId, uint16 protocolShareBps, bool tokenIsToken0, address controller, address feeWallet, uint8 claimKind, uint256 githubId, bool githubClaimed, uint64 escrowDeadline, uint256 escrowedToken, uint256 escrowedWeth, bool exists, address referrer, uint256 lifetimeWethFees)",
   "function escrowOf(address token) view returns (uint256 escrowedToken, uint256 escrowedWeth, uint64 escrowDeadline)",
+  "function graduationOf(address token) view returns (uint256 lifetimeWethFees, uint256 threshold, bool graduated)",
   "function githubBindingOf(address token) view returns (uint8 kind, uint256 githubId, bool claimed)",
+  "function referralShareBps() view returns (uint16)",
+  "function graduationBonusBps() view returns (uint16)",
+]);
+
+// FeatureBoost: paid featured placement + "boosted" badges. Off-chain ranking reads these.
+export const FEATURED = parseAbiItem(
+  "event Featured(address indexed token, address indexed payer, uint64 until, uint256 paid)"
+);
+export const BOOSTED = parseAbiItem(
+  "event Boosted(address indexed token, address indexed payer, uint256 paid)"
+);
+export const REFERRAL_PAID = parseAbiItem(
+  "event ReferralPaid(address indexed token, address indexed referrer, uint256 tokenAmount, uint256 wethAmount)"
+);
+
+export const featureBoostAbi = parseAbi([
+  "function featuredUntil(address token) view returns (uint64)",
+  "function boosted(address token) view returns (bool)",
+  "function isFeatured(address token) view returns (bool)",
+  "function pricePerDay() view returns (uint256)",
+  "function boostPrice() view returns (uint256)",
+  "function feature(address token, uint32 daysCount) payable",
+  "function boost(address token) payable",
 ]);
 
 export const lockerAbi = parseAbi([

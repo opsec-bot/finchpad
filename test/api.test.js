@@ -34,6 +34,14 @@ test("unknown route 404s", async () => {
   assert.equal(res.status, 404);
 });
 
+test("GET /featured returns an empty list when no FeatureBoost is configured", async () => {
+  const res = await fetch(`${base}/featured`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.count, 0);
+  assert.deepEqual(body.featured, []);
+});
+
 test("unknown token sub-resource 404s", async () => {
   const res = await fetch(`${base}/tokens/0x1111111111111111111111111111111111111111/bogus`);
   assert.equal([404, 500].includes(res.status), true, `unexpected status ${res.status}`);

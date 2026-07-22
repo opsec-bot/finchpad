@@ -54,6 +54,12 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         uint256 escrowedToken; // creator share held for the unclaimed GitHub identity
         uint256 escrowedWeth;
         bool exists;
+        address referrer; // paid a slice of the PROTOCOL share; address(0) = no referral
+        // Protocol-controlled traction accounting: WETH fees this position has actually paid
+        // out through collect(). Monotonic by construction, and only real swaps can move it
+        // (donating tokens to a V3 pool does not touch fee growth), so graduation is derived
+        // from it rather than latched from a manipulable spot read.
+        uint256 lifetimeWethFees;
     }
 
     uint16 public constant BPS = 10_000;
@@ -63,6 +69,16 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     address public immutable factory;
     INonfungiblePositionManager public immutable positionManager;
     address public immutable weth;
+    /// @notice Referral commission, in bps OF THE PROTOCOL SHARE (not of the whole trade). The
+    ///         creator's share is never touched. Global (immutable) so every launch on this
+    ///         locker gets the same terms; a new locker ships to change them.
+    uint16 public immutable referralShareBps;
+    /// @notice How many bps shift from the protocol share to the creator once a token has
+    ///         graduated. Rewards successful tokens; set to 0 to make graduation badge-only.
+    uint16 public immutable graduationBonusBps;
+    /// @notice Lifetime collected WETH fees at which a token counts as graduated. Set to
+    ///         type(uint256).max to disable graduation entirely.
+    uint256 public immutable graduationFeeThreshold;
     address public registry; // set once after deploy (registry <-> locker constructor cycle)
     address public protocolFeeRecipient;
     address public immutable admin; // may update protocolFeeRecipient and set the registry once
@@ -83,6 +99,11 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     event GithubClaimSettled(address indexed token, address indexed claimant, uint256 escrowedTokenPaid, uint256 escrowedWethPaid);
     /// @notice Expired unclaimed escrow was swept to the protocol recipient (buyback path).
     event EscrowSwept(address indexed token, uint256 tokenAmount, uint256 wethAmount);
+    /// @notice A referral commission was paid out of the protocol share on a collect.
+    event ReferralPaid(address indexed token, address indexed referrer, uint256 tokenAmount, uint256 wethAmount);
+    /// @notice A token crossed the graduation threshold; its protocol share now drops.
+    /// @notice Token crossed the graduation threshold. Emitted once, from collect().
+    event Graduated(address indexed token, uint256 lifetimeWethFees);
 
     error NotFactory();
     error NotRegistry();
@@ -96,6 +117,7 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     error AlreadyClaimed();
     error EscrowNotExpired();
     error NothingToSweep();
+    error InvalidBps();
 
     modifier onlyFactory() {
         if (msg.sender != factory) revert NotFactory();
@@ -112,17 +134,26 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         address positionManager_,
         address weth_,
         address protocolFeeRecipient_,
-        address admin_
+        address admin_,
+        uint16 referralShareBps_,
+        uint16 graduationBonusBps_,
+        uint256 graduationFeeThreshold_
     ) {
         if (
             factory_ == address(0) || positionManager_ == address(0) || weth_ == address(0)
                 || protocolFeeRecipient_ == address(0) || admin_ == address(0)
         ) revert ZeroAddress();
+        // referral is a fraction of the protocol share; graduation shifts at most the whole
+        // protocol share to the creator. Both are bounded by BPS.
+        if (referralShareBps_ > BPS || graduationBonusBps_ > BPS) revert InvalidBps();
         factory = factory_;
         positionManager = INonfungiblePositionManager(positionManager_);
         weth = weth_;
         protocolFeeRecipient = protocolFeeRecipient_;
         admin = admin_;
+        referralShareBps = referralShareBps_;
+        graduationBonusBps = graduationBonusBps_;
+        graduationFeeThreshold = graduationFeeThreshold_;
     }
 
     /// @notice Wire the registry once (breaks the registry <-> locker constructor cycle).
@@ -143,7 +174,8 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         bool tokenIsToken0,
         address creator,
         ClaimKind claimKind,
-        uint256 githubId
+        uint256 githubId,
+        address referrer
     ) external onlyFactory {
         if (launches[token].exists) revert AlreadyRegistered();
         if (creator == address(0)) revert ZeroAddress();
@@ -168,10 +200,23 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
             escrowDeadline: escrowDeadline,
             escrowedToken: 0,
             escrowedWeth: 0,
-            exists: true
+            exists: true,
+            referrer: referrer,
+            lifetimeWethFees: 0
         });
         emit LaunchRegistered(token, positionId, owner, protocolShareBps);
         if (github) emit GithubBound(token, claimKind, githubId, escrowDeadline);
+    }
+
+    /// @notice Traction accounting for a token: WETH fees collected so far, the threshold
+    ///         they must reach, and whether they have. Derived, never latched.
+    function graduationOf(address token)
+        external
+        view
+        returns (uint256 lifetimeWethFees, uint256 threshold, bool graduated)
+    {
+        Launch storage l = launches[token];
+        return (l.lifetimeWethFees, graduationFeeThreshold, l.lifetimeWethFees >= graduationFeeThreshold);
     }
 
     // --- fee rights (registry only) ---
@@ -271,11 +316,44 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         (uint256 tokenAmt, uint256 wethAmt) =
             l.tokenIsToken0 ? (amount0, amount1) : (amount1, amount0);
 
-        uint16 creatorBps = BPS - l.protocolShareBps;
+        // Protocol-controlled accounting: bank the WETH fees we actually received, then
+        // derive graduation from the running total. Accumulate BEFORE evaluating so the rate
+        // applied here always agrees with what graduationOf() reports afterwards.
+        uint256 feesBefore = l.lifetimeWethFees;
+        uint256 feesAfter = feesBefore + wethAmt;
+        l.lifetimeWethFees = feesAfter;
+        bool graduated = feesAfter >= graduationFeeThreshold;
+        // Chart marker: emitted exactly once, on the collect that crosses the threshold.
+        if (graduated && feesBefore < graduationFeeThreshold) emit Graduated(token, feesAfter);
+
+        // Graduated tokens pay a reduced protocol share; the freed bps go to the creator. The
+        // <= guard means an unusually low-protocol launch simply gets no discount (never an
+        // underflow).
+        uint16 protocolBps = l.protocolShareBps;
+        if (graduated && graduationBonusBps <= protocolBps) {
+            protocolBps -= graduationBonusBps;
+        }
+        uint16 creatorBps = BPS - protocolBps;
         uint256 tokenToCreator = (tokenAmt * creatorBps) / BPS;
         uint256 wethToCreator = (wethAmt * creatorBps) / BPS;
         uint256 tokenToProtocol = tokenAmt - tokenToCreator;
         uint256 wethToProtocol = wethAmt - wethToCreator;
+
+        // Referral: carve a slice of the PROTOCOL share for the referrer, before any branch.
+        // Deliberately not applied to creator-share that later redirects to protocol on an
+        // expired unclaimed GitHub launch — that stays whole for the buyback path.
+        // Left at the zero default when there is no referrer — that is the intended value,
+        // and both are read unconditionally below.
+        // slither-disable-next-line uninitialized-local
+        uint256 tokenToReferrer;
+        // slither-disable-next-line uninitialized-local
+        uint256 wethToReferrer;
+        if (l.referrer != address(0) && referralShareBps > 0) {
+            tokenToReferrer = (tokenToProtocol * referralShareBps) / BPS;
+            wethToReferrer = (wethToProtocol * referralShareBps) / BPS;
+            tokenToProtocol -= tokenToReferrer;
+            wethToProtocol -= wethToReferrer;
+        }
 
         if (l.claimKind != ClaimKind.None && !l.githubClaimed && block.timestamp <= l.escrowDeadline) {
             // Identity hasn't claimed yet: hold its share here until it does.
@@ -298,6 +376,12 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
                 if (wethToCreator > 0) IERC20(weth).safeTransfer(l.feeWallet, wethToCreator);
             }
             emit FeesCollected(token, tokenToCreator, wethToCreator, tokenToProtocol, wethToProtocol);
+        }
+
+        if (tokenToReferrer > 0) IERC20(token).safeTransfer(l.referrer, tokenToReferrer);
+        if (wethToReferrer > 0) IERC20(weth).safeTransfer(l.referrer, wethToReferrer);
+        if (tokenToReferrer > 0 || wethToReferrer > 0) {
+            emit ReferralPaid(token, l.referrer, tokenToReferrer, wethToReferrer);
         }
 
         if (tokenToProtocol > 0) IERC20(token).safeTransfer(protocolFeeRecipient, tokenToProtocol);

@@ -33,6 +33,26 @@ and farm the fees" grift. A successful claim pays out the whole escrow backlog; 
 claims within the escrow window, the escrow sweeps to the protocol recipient and feeds the
 buyback-burn.
 
+## Revenue & growth
+
+The protocol's take is a **20% cut of the 1% trading fee** (creator keeps 80% — deliberately
+more generous than pons' 70/30) plus a flat `0.0005 ETH` launch fee. Three growth-aligned
+mechanisms sit on top, none of which raise that headline take, and none of which pay token
+holders a share of revenue (so they stay clear of dividend/security questions):
+
+- **Referrals** — a launch may name a `referrer`, who earns a slice of the *protocol* share on
+  every trade of that token (default 10% of the 20%, i.e. 2% of a trade). Funded entirely from
+  the protocol side; the creator's 80% is never touched. A launcher can't refer themselves.
+- **Graduation rewards** — the 4.2-ETH graduation milestone is now real: once `markGraduated`
+  latches a token past the threshold, its protocol share drops (default 20% → 15%), the freed
+  bps going to the creator. Rewards successful tokens and gamifies pushing volume to the line.
+- **Featured placement** (`FeatureBoost`) — pay ETH to feature a token in the UI for N days or
+  buy a one-time "boosted" badge. Standalone contract, pure advertising margin to the treasury,
+  never touches the fee path.
+
+The referral rate and graduation bonus are locker-level deploy dials (`referralShareBps`,
+`graduationBonusBps`); featuring prices are admin-settable on `FeatureBoost`.
+
 ## Contracts (`contracts/`, Foundry)
 
 - `FinchToken` — fixed-supply (1e9), self-describing on-chain, holder-burnable, EIP-1167
@@ -48,6 +68,8 @@ buyback-burn.
   trusted signer key).
 - `FinchLock` — Streamflow-style locking + vesting for any ERC-20 (cliff/linear). The
   anti-rug primitive: a creator locking their own allocation is a verifiable "I can't dump."
+- `FeatureBoost` — standalone paid featured-placement + "boosted"-badge contract (see
+  Revenue & growth above). Not wired into the factory or locker.
 
 Tests cover unit, fuzz (`Fuzz.t.sol`), a claim-digest cross-check, and mainnet-fork launch/
 smoke tests (`ForkLaunch.t.sol`, `ForkSmoke.t.sol`).
