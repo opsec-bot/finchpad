@@ -47,7 +47,7 @@ contract ForkLaunchTest is Test {
         impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin);
         // No referral / no graduation bonus here so the 80/20 fork assertions stay exact.
-        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin, 0, 0);
+        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin, 0, 0, type(uint256).max);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
 
         vm.startPrank(admin);

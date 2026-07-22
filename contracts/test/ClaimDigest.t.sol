@@ -22,7 +22,7 @@ contract ClaimDigestTest is Test {
         MockPositionManager pm = new MockPositionManager();
         MockERC20 weth = new MockERC20("W", "W");
         FinchLocker locker =
-            new FinchLocker(address(this), address(pm), address(weth), address(0xBEEF), address(this), 0, 0);
+            new FinchLocker(address(this), address(pm), address(weth), address(0xBEEF), address(this), 0, 0, type(uint256).max);
         registry = new FeeRightsRegistry(address(locker), address(0xCAFE), address(this));
     }
 

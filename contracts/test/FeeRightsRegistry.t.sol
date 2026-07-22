@@ -35,7 +35,7 @@ contract FeeRightsRegistryTest is Test {
         MockPositionManager pm = new MockPositionManager();
         MockERC20 weth = new MockERC20("W", "W");
         // This test contract is the factory.
-        locker = new FinchLocker(address(this), address(pm), address(weth), protocol, admin, 0, 0);
+        locker = new FinchLocker(address(this), address(pm), address(weth), protocol, admin, 0, 0, type(uint256).max);
         vm.prank(admin);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
         vm.prank(admin);

@@ -58,7 +58,7 @@ contract SeedLocal is Script {
         FinchToken impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me);
         // referral: 10% of the protocol share; graduation: 20%->15% once graduated.
-        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500);
+        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500, 0.25 ether);
         registry = new FeeRightsRegistry(address(locker), me, me);
         lockVault = new FinchLock();
         featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);

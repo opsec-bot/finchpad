@@ -62,7 +62,7 @@ export async function getTokenDetail(token, factoryAddress) {
         .catch(() => null);
       // tuple: positionId, protocolShareBps, tokenIsToken0, controller, feeWallet,
       //        claimKind, githubId, githubClaimed, escrowDeadline, escrowedToken,
-      //        escrowedWeth, exists, referrer, graduated
+      //        escrowedWeth, exists, referrer, lifetimeWethFees
       if (l && l[11] === true) {
         launched = {
           exists: true,
@@ -75,6 +75,8 @@ export async function getTokenDetail(token, factoryAddress) {
           escrowDeadline: l[8],
           escrowedToken: l[9],
           escrowedWeth: l[10],
+          referrer: l[12],
+          lifetimeWethFees: l[13],
         };
       }
     }
@@ -113,6 +115,12 @@ export async function getTokenDetail(token, factoryAddress) {
           escrowedToken: launched.escrowedToken?.toString() ?? "0",
           escrowedWeth: launched.escrowedWeth?.toString() ?? "0",
         }
+      : null,
+    // Protocol-controlled traction accounting: WETH fees the locker has actually paid out
+    // for this token. Unlike `graduation` below (a pool-balance read, cosmetic), this cannot
+    // be moved by donating to the pool — only real swap fees advance it.
+    traction: known && launched.lifetimeWethFees !== undefined
+      ? { lifetimeWethFees: launched.lifetimeWethFees.toString() }
       : null,
     graduation: graduation
       ? {

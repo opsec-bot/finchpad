@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
-import {MockERC20, MockPositionManager, MockGraduationFactory} from "./mocks/Mocks.sol";
+import {MockERC20, MockPositionManager} from "./mocks/Mocks.sol";
 
 contract FinchLockerTest is Test {
     FinchLocker locker;
@@ -29,7 +29,7 @@ contract FinchLockerTest is Test {
 
         // Base fixture uses no referral / no graduation bonus so existing split assertions
         // are exact; the referral and graduation tests spin up their own locker.
-        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0);
+        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0, type(uint256).max);
         vm.prank(admin);
         locker.setRegistry(registry);
 
@@ -265,7 +265,7 @@ contract FinchLockerTest is Test {
 
     // A locker with a 10%-of-protocol referral rate, and a token launched with a referrer.
     function _referralLocker(address referrer) internal returns (FinchLocker refLocker, MockERC20 tok) {
-        refLocker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 1000, 0);
+        refLocker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 1000, 0, type(uint256).max);
         vm.prank(admin);
         refLocker.setRegistry(registry);
         tok = new MockERC20("Ref", "REF");
@@ -314,42 +314,75 @@ contract FinchLockerTest is Test {
         assertEq(tok.balanceOf(protocol), (1000e18 * 2000) / 10000, "no referral carved");
     }
 
-    // --- graduation reward ---
+    // --- graduation reward (protocol-controlled accounting) ---
 
-    function _gradLocker() internal returns (FinchLocker gLocker, MockGraduationFactory gf, MockERC20 tok) {
-        gf = new MockGraduationFactory();
+    uint256 constant GRAD_THRESHOLD = 1 ether; // 1 WETH of collected fees
+
+    function _gradLocker() internal returns (FinchLocker gLocker, MockERC20 tok) {
         // graduation shifts 500 bps (5%) protocol->creator: 20% -> 15% once graduated.
-        gLocker = new FinchLocker(address(gf), address(pm), address(weth), protocol, admin, 0, 500);
+        gLocker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 500, GRAD_THRESHOLD);
         vm.prank(admin);
         gLocker.setRegistry(registry);
         tok = new MockERC20("Grad", "GRAD");
         bool isToken0 = address(tok) < address(weth);
-        vm.prank(address(gf));
+        vm.prank(factory);
         gLocker.registerLaunch(address(tok), 11, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, address(0));
     }
 
-    function test_markGraduated_reducesProtocolShare() public {
-        (FinchLocker gLocker, MockGraduationFactory gf, MockERC20 tok) = _gradLocker();
+    function test_graduation_derivedFromCollectedWethFees() public {
+        (FinchLocker gLocker, MockERC20 tok) = _gradLocker();
 
-        // Before graduation: 80/20.
-        _queueFeesFor(tok, 1000e18, 0);
+        // Below the threshold: still 80/20, and the accounting tracks what we actually paid.
+        _queueFeesFor(tok, 1000e18, 0.4 ether);
         gLocker.collect(address(tok));
         assertEq(tok.balanceOf(creator), 800e18, "pre-grad creator 80%");
         assertEq(tok.balanceOf(protocol), 200e18, "pre-grad protocol 20%");
+        (uint256 fees, uint256 threshold, bool graduated) = gLocker.graduationOf(address(tok));
+        assertEq(fees, 0.4 ether, "lifetime weth fees banked");
+        assertEq(threshold, GRAD_THRESHOLD);
+        assertFalse(graduated, "0.4 < 1 ether");
 
-        // Can't mark graduated until the factory says so.
-        vm.expectRevert(FinchLocker.NotGraduated.selector);
-        gLocker.markGraduated(address(tok));
+        // The collect that crosses the threshold emits Graduated exactly once and already
+        // pays the graduated rate (state and applied rate agree).
+        _queueFeesFor(tok, 1000e18, 0.6 ether);
+        vm.expectEmit(true, false, false, true);
+        emit FinchLocker.Graduated(address(tok), 1 ether);
+        gLocker.collect(address(tok));
+        (,, graduated) = gLocker.graduationOf(address(tok));
+        assertTrue(graduated, "crossed the threshold");
+        assertEq(tok.balanceOf(creator), 800e18 + 850e18, "graduated creator 85%");
+        assertEq(tok.balanceOf(protocol), 200e18 + 150e18, "graduated protocol 15%");
 
-        gf.setGraduated(address(tok), true);
-        gLocker.markGraduated(address(tok));
-        vm.expectRevert(FinchLocker.AlreadyGraduated.selector);
-        gLocker.markGraduated(address(tok));
-
-        // After graduation: 85/15 on the next collect.
+        // Stays graduated, and does NOT re-emit.
         _queueFeesFor(tok, 1000e18, 0);
         gLocker.collect(address(tok));
-        assertEq(tok.balanceOf(creator), 800e18 + 850e18, "post-grad creator 85%");
-        assertEq(tok.balanceOf(protocol), 200e18 + 150e18, "post-grad protocol 15%");
+        assertEq(tok.balanceOf(creator), 800e18 + 850e18 + 850e18, "still 85%");
+    }
+
+    /// The whole point of the rewrite: nobody can hand a token graduation without paying real
+    /// swap fees. Donating WETH to the locker (or anywhere else) must not move the accounting.
+    function test_graduation_notGrantedByDonation() public {
+        (FinchLocker gLocker, MockERC20 tok) = _gradLocker();
+
+        weth.mint(address(gLocker), 100 ether); // donation straight to the locker
+        weth.mint(address(pm), 100 ether);
+        (,, bool graduated) = gLocker.graduationOf(address(tok));
+        assertFalse(graduated, "donations are not fees");
+
+        // and a collect that yields no WETH fees still does not graduate it
+        _queueFeesFor(tok, 1000e18, 0);
+        gLocker.collect(address(tok));
+        uint256 fees;
+        (fees,, graduated) = gLocker.graduationOf(address(tok));
+        assertEq(fees, 0, "no weth fees collected");
+        assertFalse(graduated, "still not graduated");
+    }
+
+    function test_graduation_disabledWhenThresholdUnreachable() public {
+        // The base fixture locker uses type(uint256).max — graduation can never trigger.
+        _queueFees(token, 0, 5 ether);
+        locker.collect(address(token));
+        (,, bool graduated) = locker.graduationOf(address(token));
+        assertFalse(graduated, "max threshold disables graduation");
     }
 }

@@ -7,15 +7,6 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
 import {IFinchLockerControl, ClaimKind} from "./interfaces/IFinchLockerControl.sol";
 
-/// @notice The single graduation read the locker needs from the factory. Kept minimal so the
-///         factory stays the one source of truth for the graduation threshold and progress.
-interface IFinchFactoryGraduation {
-    function graduationStatus(address token)
-        external
-        view
-        returns (uint256 pairedPrincipal, uint256 threshold, bool graduated);
-}
-
 /**
  * @title FinchLocker
  * @notice Holds each launch's locked Uniswap V3 LP position, collects the trading fees it
@@ -64,7 +55,11 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         uint256 escrowedWeth;
         bool exists;
         address referrer; // paid a slice of the PROTOCOL share; address(0) = no referral
-        bool graduated; // latched once the token crosses the graduation threshold
+        // Protocol-controlled traction accounting: WETH fees this position has actually paid
+        // out through collect(). Monotonic by construction, and only real swaps can move it
+        // (donating tokens to a V3 pool does not touch fee growth), so graduation is derived
+        // from it rather than latched from a manipulable spot read.
+        uint256 lifetimeWethFees;
     }
 
     uint16 public constant BPS = 10_000;
@@ -81,6 +76,9 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     /// @notice How many bps shift from the protocol share to the creator once a token has
     ///         graduated. Rewards successful tokens; set to 0 to make graduation badge-only.
     uint16 public immutable graduationBonusBps;
+    /// @notice Lifetime collected WETH fees at which a token counts as graduated. Set to
+    ///         type(uint256).max to disable graduation entirely.
+    uint256 public immutable graduationFeeThreshold;
     address public registry; // set once after deploy (registry <-> locker constructor cycle)
     address public protocolFeeRecipient;
     address public immutable admin; // may update protocolFeeRecipient and set the registry once
@@ -104,7 +102,8 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     /// @notice A referral commission was paid out of the protocol share on a collect.
     event ReferralPaid(address indexed token, address indexed referrer, uint256 tokenAmount, uint256 wethAmount);
     /// @notice A token crossed the graduation threshold; its protocol share now drops.
-    event Graduated(address indexed token);
+    /// @notice Token crossed the graduation threshold. Emitted once, from collect().
+    event Graduated(address indexed token, uint256 lifetimeWethFees);
 
     error NotFactory();
     error NotRegistry();
@@ -119,8 +118,6 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     error EscrowNotExpired();
     error NothingToSweep();
     error InvalidBps();
-    error NotGraduated();
-    error AlreadyGraduated();
 
     modifier onlyFactory() {
         if (msg.sender != factory) revert NotFactory();
@@ -139,7 +136,8 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         address protocolFeeRecipient_,
         address admin_,
         uint16 referralShareBps_,
-        uint16 graduationBonusBps_
+        uint16 graduationBonusBps_,
+        uint256 graduationFeeThreshold_
     ) {
         if (
             factory_ == address(0) || positionManager_ == address(0) || weth_ == address(0)
@@ -155,6 +153,7 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         admin = admin_;
         referralShareBps = referralShareBps_;
         graduationBonusBps = graduationBonusBps_;
+        graduationFeeThreshold = graduationFeeThreshold_;
     }
 
     /// @notice Wire the registry once (breaks the registry <-> locker constructor cycle).
@@ -203,25 +202,21 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
             escrowedWeth: 0,
             exists: true,
             referrer: referrer,
-            graduated: false
+            lifetimeWethFees: 0
         });
         emit LaunchRegistered(token, positionId, owner, protocolShareBps);
         if (github) emit GithubBound(token, claimKind, githubId, escrowDeadline);
     }
 
-    /// @notice Latch a token as graduated once the factory reports it past the threshold.
-    ///         Permissionless (anyone/any keeper may call) and one-way — graduation can't be
-    ///         undone by later sells dropping the pool's WETH back below the threshold.
-    function markGraduated(address token) external {
+    /// @notice Traction accounting for a token: WETH fees collected so far, the threshold
+    ///         they must reach, and whether they have. Derived, never latched.
+    function graduationOf(address token)
+        external
+        view
+        returns (uint256 lifetimeWethFees, uint256 threshold, bool graduated)
+    {
         Launch storage l = launches[token];
-        if (!l.exists) revert UnknownToken();
-        if (l.graduated) revert AlreadyGraduated();
-        // Only the boolean matters here; principal/threshold are for UI progress bars.
-        // slither-disable-next-line unused-return
-        (,, bool graduated) = IFinchFactoryGraduation(factory).graduationStatus(token);
-        if (!graduated) revert NotGraduated();
-        l.graduated = true;
-        emit Graduated(token);
+        return (l.lifetimeWethFees, graduationFeeThreshold, l.lifetimeWethFees >= graduationFeeThreshold);
     }
 
     // --- fee rights (registry only) ---
@@ -321,11 +316,21 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         (uint256 tokenAmt, uint256 wethAmt) =
             l.tokenIsToken0 ? (amount0, amount1) : (amount1, amount0);
 
+        // Protocol-controlled accounting: bank the WETH fees we actually received, then
+        // derive graduation from the running total. Accumulate BEFORE evaluating so the rate
+        // applied here always agrees with what graduationOf() reports afterwards.
+        uint256 feesBefore = l.lifetimeWethFees;
+        uint256 feesAfter = feesBefore + wethAmt;
+        l.lifetimeWethFees = feesAfter;
+        bool graduated = feesAfter >= graduationFeeThreshold;
+        // Chart marker: emitted exactly once, on the collect that crosses the threshold.
+        if (graduated && feesBefore < graduationFeeThreshold) emit Graduated(token, feesAfter);
+
         // Graduated tokens pay a reduced protocol share; the freed bps go to the creator. The
         // <= guard means an unusually low-protocol launch simply gets no discount (never an
         // underflow).
         uint16 protocolBps = l.protocolShareBps;
-        if (l.graduated && graduationBonusBps <= protocolBps) {
+        if (graduated && graduationBonusBps <= protocolBps) {
             protocolBps -= graduationBonusBps;
         }
         uint16 creatorBps = BPS - protocolBps;

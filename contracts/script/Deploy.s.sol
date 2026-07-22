@@ -36,6 +36,9 @@ import {FeatureBoost} from "../src/FeatureBoost.sol";
  *   FINCH_PROTOCOL_BPS        protocol fee share in bps (2000 = 80/20)
  *   FINCH_REFERRAL_BPS        referral commission, in bps of the protocol share (1000 = 10%)
  *   FINCH_GRAD_BONUS_BPS      bps shifted protocol->creator once graduated (500 = 20%->15%)
+ *   FINCH_GRAD_FEE_THRESHOLD  lifetime collected WETH fees that count as graduated, wei
+ *                             (default 0.25 ether ~= 25 ETH of cumulative buy volume at the
+ *                             1% tier). Set very high to disable the graduation discount.
  *   FINCH_FEATURE_PRICE       FeatureBoost price per featured day, wei (default 0.01 ether)
  *   FINCH_BOOST_PRICE         FeatureBoost one-time "boosted"-badge price, wei (default 0.05 ether)
  *
@@ -59,6 +62,7 @@ contract Deploy is Script {
         uint16 protocolBps = uint16(vm.envOr("FINCH_PROTOCOL_BPS", uint256(2000)));
         uint16 referralBps = uint16(vm.envOr("FINCH_REFERRAL_BPS", uint256(1000)));
         uint16 gradBonusBps = uint16(vm.envOr("FINCH_GRAD_BONUS_BPS", uint256(500)));
+        uint256 gradFeeThreshold = vm.envOr("FINCH_GRAD_FEE_THRESHOLD", uint256(0.25 ether));
         uint256 featurePrice = vm.envOr("FINCH_FEATURE_PRICE", uint256(0.01 ether));
         uint256 boostPrice = vm.envOr("FINCH_BOOST_PRICE", uint256(0.05 ether));
 
@@ -69,7 +73,7 @@ contract Deploy is Script {
         FinchFactory factory =
             new FinchFactory(address(impl), positionManager, weth, protocolBps, feeRecipient, admin);
         FinchLocker locker =
-            new FinchLocker(address(factory), positionManager, weth, protocolRecipient, admin, referralBps, gradBonusBps);
+            new FinchLocker(address(factory), positionManager, weth, protocolRecipient, admin, referralBps, gradBonusBps, gradFeeThreshold);
         FeeRightsRegistry registry = new FeeRightsRegistry(address(locker), githubSigner, admin);
         FinchLock lockVault = new FinchLock();
         FeatureBoost featureBoost = new FeatureBoost(feeRecipient, admin, featurePrice, boostPrice);

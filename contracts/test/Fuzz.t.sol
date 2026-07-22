@@ -27,7 +27,7 @@ contract FuzzTest is Test {
         pm = new MockPositionManager();
         weth = new MockERC20("W", "W");
         token = new MockERC20("T", "T");
-        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0);
+        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0, type(uint256).max);
         vm.prank(admin);
         locker.setRegistry(registry);
         vault = new FinchLock();
@@ -129,7 +129,7 @@ contract FuzzTest is Test {
         referralBps = uint16(bound(referralBps, 0, 10_000));
         address referrer = makeAddr("referrer");
 
-        FinchLocker rl = new FinchLocker(factory, address(pm), address(weth), protocol, admin, referralBps, 0);
+        FinchLocker rl = new FinchLocker(factory, address(pm), address(weth), protocol, admin, referralBps, 0, type(uint256).max);
         vm.prank(admin);
         rl.setRegistry(registry);
 
@@ -153,6 +153,47 @@ contract FuzzTest is Test {
         // Creator gets exactly the creator share — referral comes out of protocol, not creator.
         uint256 creatorNominal = (uint256(fees) * (10_000 - protocolBps)) / 10_000;
         assertEq(creatorGot, creatorNominal, "creator share untouched by referral");
+    }
+
+    /// Graduation accounting must be monotonic and must advance by EXACTLY the WETH fees
+    /// collected — never by donations, never by token-side fees. This is the property the
+    /// old spot-balance read did not have.
+    function testFuzz_graduationAccountingTracksCollectedWethOnly(
+        uint96 wethFees1,
+        uint96 wethFees2,
+        uint96 tokenFees,
+        uint96 donation
+    ) public {
+        FinchLocker gl = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0, 1 ether);
+        vm.prank(admin);
+        gl.setRegistry(registry);
+        bool tokenIsToken0 = address(token) < address(weth);
+        vm.prank(factory);
+        gl.registerLaunch(address(token), 1, 2000, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
+
+        // Donations to the locker must never count as traction.
+        weth.mint(address(gl), donation);
+
+        uint256 running;
+        uint96[2] memory rounds = [wethFees1, wethFees2];
+        for (uint256 i = 0; i < 2; i++) {
+            token.mint(address(pm), tokenFees);
+            weth.mint(address(pm), rounds[i]);
+            (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
+                ? (address(token), address(weth), uint256(tokenFees), uint256(rounds[i]))
+                : (address(weth), address(token), uint256(rounds[i]), uint256(tokenFees));
+            pm.setCollectReturns(t0, t1, a0, a1);
+
+            (uint256 before,,) = gl.graduationOf(address(token));
+            gl.collect(address(token));
+            (uint256 afterFees,, bool graduated) = gl.graduationOf(address(token));
+
+            assertGe(afterFees, before, "accounting went backwards");
+            assertEq(afterFees, before + rounds[i], "advanced by exactly the collected weth");
+            running += rounds[i];
+            assertEq(afterFees, running, "no donation or token-side leakage");
+            assertEq(graduated, running >= 1 ether, "graduation is derived, not latched");
+        }
     }
 
     // --- vesting -------------------------------------------------------------------------
