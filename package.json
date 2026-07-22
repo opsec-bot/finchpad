@@ -1,19 +1,30 @@
 {
   "name": "finchpad",
   "version": "0.0.1",
-  "description": "A token launchpad on Robinhood Chain — pons-style V3 launches with a fee-rights registry (CTO, GitHub claims, redirects, burns).",
+  "description": "A token launchpad on Robinhood Chain \u2014 pons-style V3 launches with a fee-rights registry (CTO, GitHub claims, redirects, burns).",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "api": "node --env-file=.env src/backend/api.js",
+    "api": "npm run web:build --silent && node --env-file=.env src/backend/api.js",
     "dev:fork": "bash scripts/dev-fork.sh",
     "dev:seed": "bash scripts/dev-seed.sh",
     "index:backfill": "node --env-file=.env src/indexer/backfill.js",
     "index:swaps": "node --env-file=.env src/indexer/swaps.js",
-    "verify:reference": "node --env-file=.env src/indexer/verifyReference.js"
+    "verify:reference": "node --env-file=.env src/indexer/verifyReference.js",
+    "web:install": "npm --prefix web ci",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:typecheck": "npm --prefix web run typecheck",
+    "api:only": "node --env-file=.env src/backend/api.js"
   },
-  "keywords": ["launchpad", "robinhood-chain", "uniswap-v3", "evm", "defi"],
+  "keywords": [
+    "launchpad",
+    "robinhood-chain",
+    "uniswap-v3",
+    "evm",
+    "defi"
+  ],
   "license": "MIT",
   "dependencies": {
     "viem": "^2.55.5"

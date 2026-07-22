@@ -100,12 +100,26 @@ forge test --match-path 'test/Fork*.t.sol'   # needs a mainnet fork RPC
   supply, WETH pairing, graduation, fee split, and live price).
 
 ```bash
-npm install
+cp .env.example .env            # one config file for backend, Foundry, and the frontend
+npm install                     # backend deps (viem only)
+npm run web:install             # frontend deps (separate package, see below)
+
+npm run api                     # builds the frontend, then serves API + app on :8787
+npm run api:only                # API alone, skips the frontend build
+npm run web:dev                 # live-reload frontend on :5173, proxying the API
 npm run verify:reference        # validate read paths against live chain state
-npm run api                     # read API + frontend on :8787
 npm test                        # node --test
-node src/indexer/swaps.js <token> --from <n> --to <n> --interval 300
 ```
+
+**Config lives in one file: the repo-root `.env`** (copy it from `.env.example`). The API,
+the Foundry deploy scripts, and the frontend build all read it. The one rule to remember:
+**anything named `VITE_*` is public** — Vite inlines those into the browser bundle everyone
+downloads. Everything without that prefix (`GITHUB_CLIENT_SECRET`, `ALCHEMY_*`,
+`PRIVATE_KEY`) stays server-side and never reaches the browser.
+
+Because `VITE_*` values are baked in at build time, `:8787` serves whatever was last built —
+after changing a `VITE_*` var, re-run `npm run api` (which rebuilds) or `npm run web:build`.
+For frontend work use `npm run web:dev` on `:5173` instead, which hot-reloads.
 
 The API and indexer default to the live pons factory so they return real data before
 finchpad deploys; finchpad's own factory/locker addresses drop into `src/lib/contracts.js`
@@ -113,8 +127,18 @@ once the contracts ship.
 
 ## Frontend (`web/`)
 
-`web/index.html` — a single-page, no-build token explorer (launch list, token detail,
-candles, trades, holder concentration), served from the same origin as the API.
+A Vite + React app: token explorer (launch list, detail, candles, trades, graduation and
+GitHub-claim state) plus the launch flow, with wallet connection via
+[Privy](https://privy.io) — external wallets or an embedded wallet created on login, so
+someone with no wallet can still launch a token.
+
+It is a **separate npm package** on purpose. The backend will eventually sit next to a
+signing key, so it keeps a deliberately tiny dependency surface (viem only); React, Vite and
+the wallet stack never enter that process. `npm run api` serves the built output from
+`web/dist` with a CSP, `nosniff`, and an extension-allowlisted asset handler.
+
+Write actions stay disabled until `VITE_FINCH_FACTORY` is set, so nothing is sent before the
+contracts exist — point it at a local deployment via `npm run dev:fork` + `npm run dev:seed`.
 
 ## Local development
 

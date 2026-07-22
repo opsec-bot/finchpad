@@ -5,6 +5,11 @@ import react from "@vitejs/plugin-react";
 // so dev points API calls at the running API on :8787 and prod is same-origin.
 export default defineConfig({
   plugins: [react()],
+  // One env file for the whole repo: the root .env, same one the API and Foundry scripts read.
+  // Vite only ever inlines VITE_-prefixed vars into the browser bundle, so the secrets that
+  // live alongside them (GITHUB_CLIENT_SECRET, ALCHEMY_*, PRIVATE_KEY) are never exposed.
+  // The corollary is the rule to remember: anything you name VITE_* is PUBLIC.
+  envDir: "..",
   build: { outDir: "dist", sourcemap: true },
   server: {
     port: 5173,

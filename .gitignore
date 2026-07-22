@@ -7,3 +7,8 @@ data/*.json
 dist/
 out/
 cache/
+
+# frontend local env (app id is public, but keep local overrides out of git)
+web/.env.local
+web/node_modules
+web/dist

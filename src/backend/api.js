@@ -153,7 +153,45 @@ async function route(url) {
 }
 
 // Serve the single-page frontend from the same origin (so it needs no CORS and no build).
-const WEB_INDEX = resolve(fileURLToPath(import.meta.url), "..", "..", "..", "web", "index.html");
+const WEB_DIST = resolve(fileURLToPath(import.meta.url), "..", "..", "..", "web", "dist");
+const WEB_INDEX = resolve(WEB_DIST, "index.html");
+
+// Static assets for the built frontend. Deliberately tiny and allowlisted by extension —
+// this process sits next to a signing key, so it serves hashed build output and nothing else.
+const MIME = {
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+  ".ico": "image/x-icon",
+};
+
+async function serveAsset(pathname, res) {
+  // Vite emits everything under /assets with content-hashed names.
+  if (!pathname.startsWith("/assets/")) return false;
+  // Reject anything that could escape the dist directory before touching the filesystem.
+  if (pathname.includes("..") || pathname.includes("\0")) return false;
+  const ext = pathname.slice(pathname.lastIndexOf("."));
+  const type = MIME[ext];
+  if (!type) return false;
+
+  const file = resolve(WEB_DIST, "." + pathname);
+  if (!file.startsWith(WEB_DIST)) return false; // belt and braces against traversal
+  const body = await readFile(file).catch(() => null);
+  if (!body) return false;
+
+  res.writeHead(200, {
+    "content-type": type,
+    // Hashed filenames, so these are immutable.
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(body);
+  return true;
+}
 
 export const server = createServer(async (req, res) => {
   if (req.method !== "GET") return send(res, 405, { error: "GET only" });
@@ -170,10 +208,31 @@ export const server = createServer(async (req, res) => {
       return send(res, authed.status, authed.body, { "cache-control": "no-store" });
     }
 
+    if (await serveAsset(url.pathname, res)) return;
+
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
       if (html) {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+          // Defence in depth for a page that prompts wallet signing. Privy needs its own
+          // origin for auth frames and its RPC/analytics hosts; everything else is denied.
+          "content-security-policy": [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: https:",
+            "font-src 'self' data:",
+            "connect-src 'self' https://auth.privy.io https://api.privy.io wss://relay.walletconnect.com https://*.chain.robinhood.com https://*.alchemy.com",
+            "frame-src https://auth.privy.io https://verify.walletconnect.com",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+          ].join("; "),
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "strict-origin-when-cross-origin",
+        });
         return res.end(html);
       }
     }
