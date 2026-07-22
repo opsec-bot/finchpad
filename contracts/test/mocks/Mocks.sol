@@ -72,3 +72,23 @@ contract MockPositionManager is INonfungiblePositionManager {
         return address(0);
     }
 }
+
+/// @notice Stub factory exposing just graduationStatus, so locker unit tests can drive
+/// markGraduated without a real factory/pool. `graduated` is settable per token.
+contract MockGraduationFactory {
+    mapping(address => bool) public isGraduated;
+
+    function setGraduated(address token, bool g) external {
+        isGraduated[token] = g;
+    }
+
+    function graduationStatus(address token)
+        external
+        view
+        returns (uint256 pairedPrincipal, uint256 threshold, bool graduated)
+    {
+        graduated = isGraduated[token];
+        threshold = 4.2 ether;
+        pairedPrincipal = graduated ? threshold : 0;
+    }
+}

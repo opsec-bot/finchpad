@@ -52,6 +52,8 @@ contract FinchFactory is ReentrancyGuard {
         int24 tickLower; // single-sided range for the full supply
         int24 tickUpper;
         uint64 restrictionBlocks; // anti-snipe window length
+        address referrer; // who referred this launch; earns a slice of the protocol fee share.
+            // address(0) = no referral. May not be the launcher (see SelfReferral).
     }
 
     event Launched(
@@ -61,6 +63,7 @@ contract FinchFactory is ReentrancyGuard {
     error LockerAlreadySet();
     error LockerNotSet();
     error NotAdmin();
+    error SelfReferral();
     error InsufficientLaunchFee();
     error FeeForwardFailed();
     error RefundFailed();
@@ -120,6 +123,8 @@ contract FinchFactory is ReentrancyGuard {
     {
         if (address(locker) == address(0)) revert LockerNotSet();
         if (msg.value < LAUNCH_FEE) revert InsufficientLaunchFee();
+        // A launcher can't refer themselves — that would just skim their own protocol fees.
+        if (p.referrer == msg.sender) revert SelfReferral();
 
         // 1. Clone + initialize the token; full supply is minted to this factory.
         token = Clones.clone(tokenImplementation);
@@ -172,7 +177,9 @@ contract FinchFactory is ReentrancyGuard {
         if (dust > 0) IERC20(token).safeTransfer(msg.sender, dust);
 
         // 5. Register the launch with the locker (fee split snapshot + control = creator).
-        locker.registerLaunch(token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId);
+        locker.registerLaunch(
+            token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId, p.referrer
+        );
 
         // 6. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
         //    msg.value would silently pocket a fat-fingered 1 ETH on a 0.0005 ETH fee.

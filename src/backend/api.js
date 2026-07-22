@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { PONS } from "../lib/contracts.js";
-import { getCandles, getRecentLaunches, getTokenDetail, getTrades } from "../lib/tokenData.js";
+import { getCandles, getFeatured, getRecentLaunches, getTokenDetail, getTrades } from "../lib/tokenData.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -38,6 +38,9 @@ const githubAuth = createGithubAuth({
 });
 // Defaults to the live pons factory so the API returns real data before finchpad deploys.
 const FACTORY = flag("factory", process.env.FINCH_FACTORY || PONS.activeFactory.address);
+// FeatureBoost address for paid featured placement. Unset until finchpad's contracts deploy,
+// in which case /featured simply returns an empty list rather than erroring.
+const FEATURE_BOOST = flag("feature-boost", process.env.FINCH_FEATURE_BOOST || null);
 
 // --- tiny TTL cache -------------------------------------------------------------------
 const cache = new Map();
@@ -94,7 +97,17 @@ async function route(url) {
   const q = url.searchParams;
 
   if (parts.length === 0 || parts[0] === "health") {
-    return { status: 200, body: { ok: true, factory: FACTORY, uptimeSec: Math.floor(process.uptime()) } };
+    return { status: 200, body: { ok: true, factory: FACTORY, featureBoost: FEATURE_BOOST, uptimeSec: Math.floor(process.uptime()) } };
+  }
+
+  // GET /featured — currently-featured tokens (paid placement). Empty until FeatureBoost is
+  // configured. Cached hard because featuring changes on the order of days, not seconds.
+  if (parts[0] === "featured") {
+    const blocks = boundedBlocks(q.get("blocks"));
+    const featured = await cached(`featured:${blocks}`, 30_000, () =>
+      getFeatured({ featureBoost: FEATURE_BOOST, blocks })
+    );
+    return { status: 200, body: { featureBoost: FEATURE_BOOST, count: featured.length, featured } };
   }
 
   if (parts[0] !== "tokens") return { status: 404, body: { error: "not found" } };
@@ -180,6 +193,7 @@ if (isDirectRun) {
   server.listen(PORT, () => {
     console.log(`finchpad api on http://localhost:${PORT}  (factory ${FACTORY})`);
     console.log(`  GET /health`);
+    console.log(`  GET /featured`);
     console.log(`  GET /tokens?blocks=5000&limit=50`);
     console.log(`  GET /tokens/:address`);
     console.log(`  GET /tokens/:address/candles?interval=300&blocks=5000`);

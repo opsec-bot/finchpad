@@ -27,7 +27,7 @@ contract FuzzTest is Test {
         pm = new MockPositionManager();
         weth = new MockERC20("W", "W");
         token = new MockERC20("T", "T");
-        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin);
+        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0);
         vm.prank(admin);
         locker.setRegistry(registry);
         vault = new FinchLock();
@@ -43,7 +43,7 @@ contract FuzzTest is Test {
         address t = address(uint160(uint256(keccak256(abi.encode(tokenFees, wethFees, protocolBps)))));
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
 
         token.mint(address(pm), tokenFees);
         weth.mint(address(pm), wethFees);
@@ -70,7 +70,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
 
         token.mint(address(pm), fees);
         (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
@@ -93,7 +93,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.User, 42);
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.User, 42, address(0));
 
         uint256 total;
         uint128[2] memory rounds = [fees1, fees2];
@@ -117,6 +117,42 @@ contract FuzzTest is Test {
 
         assertEq(token.balanceOf(claimant), escrowed, "settle pays exactly the escrow");
         assertEq(token.balanceOf(address(locker)), 0, "no dust stranded after settle");
+    }
+
+    /// With a referral in play, every wei must still land with creator, protocol, or referrer —
+    /// and the creator is NEVER worse off than the no-referral split, because referral is
+    /// carved from the protocol side only.
+    function testFuzz_referralConservesAndCreatorUnharmed(uint128 fees, uint16 protocolBps, uint16 referralBps)
+        public
+    {
+        protocolBps = uint16(bound(protocolBps, 0, 10_000));
+        referralBps = uint16(bound(referralBps, 0, 10_000));
+        address referrer = makeAddr("referrer");
+
+        FinchLocker rl = new FinchLocker(factory, address(pm), address(weth), protocol, admin, referralBps, 0);
+        vm.prank(admin);
+        rl.setRegistry(registry);
+
+        bool tokenIsToken0 = address(token) < address(weth);
+        vm.prank(factory);
+        rl.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, referrer);
+
+        token.mint(address(pm), fees);
+        (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
+            ? (address(token), address(weth), uint256(fees), uint256(0))
+            : (address(weth), address(token), uint256(0), uint256(fees));
+        pm.setCollectReturns(t0, t1, a0, a1);
+
+        rl.collect(address(token));
+
+        uint256 creatorGot = token.balanceOf(creator);
+        assertEq(
+            creatorGot + token.balanceOf(protocol) + token.balanceOf(referrer), uint256(fees), "every wei conserved"
+        );
+        assertEq(token.balanceOf(address(rl)), 0, "no dust stranded");
+        // Creator gets exactly the creator share — referral comes out of protocol, not creator.
+        uint256 creatorNominal = (uint256(fees) * (10_000 - protocolBps)) / 10_000;
+        assertEq(creatorGot, creatorNominal, "creator share untouched by referral");
     }
 
     // --- vesting -------------------------------------------------------------------------

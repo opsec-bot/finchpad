@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
-import {MockERC20, MockPositionManager} from "./mocks/Mocks.sol";
+import {MockERC20, MockPositionManager, MockGraduationFactory} from "./mocks/Mocks.sol";
 
 contract FinchLockerTest is Test {
     FinchLocker locker;
@@ -27,13 +27,17 @@ contract FinchLockerTest is Test {
         weth = new MockERC20("Wrapped Ether", "WETH");
         token = new MockERC20("Token", "TKN");
 
-        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin);
+        // Base fixture uses no referral / no graduation bonus so existing split assertions
+        // are exact; the referral and graduation tests spin up their own locker.
+        locker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 0, 0);
         vm.prank(admin);
         locker.setRegistry(registry);
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), POSITION_ID, PROTOCOL_BPS, tokenIsToken0, creator, ClaimKind.None, 0);
+        locker.registerLaunch(
+            address(token), POSITION_ID, PROTOCOL_BPS, tokenIsToken0, creator, ClaimKind.None, 0, address(0)
+        );
     }
 
     // Registers a second token bound to a GitHub identity and queues `tokenFees` for collect.
@@ -41,7 +45,7 @@ contract FinchLockerTest is Test {
         gh = new MockERC20("Gh", "GH");
         bool ghIsToken0 = address(gh) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(gh), 7, PROTOCOL_BPS, ghIsToken0, creator, kind, GITHUB_ID);
+        locker.registerLaunch(address(gh), 7, PROTOCOL_BPS, ghIsToken0, creator, kind, GITHUB_ID, address(0));
     }
 
     function _queueFees(MockERC20 tok, uint256 tokenFees, uint256 wethFees) internal {
@@ -56,24 +60,24 @@ contract FinchLockerTest is Test {
 
     function test_registerLaunch_onlyFactory() public {
         vm.expectRevert(FinchLocker.NotFactory.selector);
-        locker.registerLaunch(address(0x1), 1, 1000, true, creator, ClaimKind.None, 0);
+        locker.registerLaunch(address(0x1), 1, 1000, true, creator, ClaimKind.None, 0, address(0));
     }
 
     function test_registerLaunch_noDoubleRegister() public {
         vm.prank(factory);
         vm.expectRevert(FinchLocker.AlreadyRegistered.selector);
-        locker.registerLaunch(address(token), 1, 1000, true, creator, ClaimKind.None, 0);
+        locker.registerLaunch(address(token), 1, 1000, true, creator, ClaimKind.None, 0, address(0));
     }
 
     function test_registerLaunch_validatesGithubBinding() public {
         // github kind requires a nonzero id
         vm.prank(factory);
         vm.expectRevert(FinchLocker.InvalidGithubBinding.selector);
-        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.Repo, 0);
+        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.Repo, 0, address(0));
         // and a plain launch must not smuggle one in
         vm.prank(factory);
         vm.expectRevert(FinchLocker.InvalidGithubBinding.selector);
-        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.None, GITHUB_ID);
+        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.None, GITHUB_ID, address(0));
     }
 
     function test_setRegistry_onceOnly() public {
@@ -255,5 +259,97 @@ contract FinchLockerTest is Test {
         emit FinchLocker.FeesCollected(address(gh), 80e18, 0, 20e18, 0);
         locker.collect(address(gh));
         assertEq(gh.balanceOf(community), 80e18);
+    }
+
+    // --- referral ---
+
+    // A locker with a 10%-of-protocol referral rate, and a token launched with a referrer.
+    function _referralLocker(address referrer) internal returns (FinchLocker refLocker, MockERC20 tok) {
+        refLocker = new FinchLocker(factory, address(pm), address(weth), protocol, admin, 1000, 0);
+        vm.prank(admin);
+        refLocker.setRegistry(registry);
+        tok = new MockERC20("Ref", "REF");
+        bool isToken0 = address(tok) < address(weth);
+        vm.prank(factory);
+        refLocker.registerLaunch(address(tok), 9, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, referrer);
+    }
+
+    function _queueFeesFor(MockERC20 tok, uint256 tokenFees, uint256 wethFees) internal {
+        tok.mint(address(pm), tokenFees);
+        weth.mint(address(pm), wethFees);
+        bool isToken0 = address(tok) < address(weth);
+        (address t0, address t1, uint256 a0, uint256 a1) = isToken0
+            ? (address(tok), address(weth), tokenFees, wethFees)
+            : (address(weth), address(tok), wethFees, tokenFees);
+        pm.setCollectReturns(t0, t1, a0, a1);
+    }
+
+    function test_collect_paysReferralOutOfProtocolShare() public {
+        address referrer = makeAddr("referrer");
+        (FinchLocker refLocker, MockERC20 tok) = _referralLocker(referrer);
+
+        uint256 tokenFees = 1000e18;
+        uint256 wethFees = 10e18;
+        _queueFeesFor(tok, tokenFees, wethFees);
+        refLocker.collect(address(tok));
+
+        // Creator still gets the full 80% — referral never touches the creator side.
+        assertEq(tok.balanceOf(creator), (tokenFees * 8000) / 10000, "creator unchanged");
+        assertEq(weth.balanceOf(creator), (wethFees * 8000) / 10000, "creator weth unchanged");
+        // Protocol base is 20%; referrer takes 10% of THAT (=2% of the trade), protocol keeps 18%.
+        uint256 protoBase = (tokenFees * 2000) / 10000;
+        uint256 refCut = (protoBase * 1000) / 10000;
+        assertEq(tok.balanceOf(referrer), refCut, "referrer gets 10% of protocol share");
+        assertEq(tok.balanceOf(protocol), protoBase - refCut, "protocol keeps the rest");
+        // Conservation: nothing created or stranded.
+        assertEq(tok.balanceOf(creator) + tok.balanceOf(protocol) + tok.balanceOf(referrer), tokenFees, "conserved");
+        assertEq(tok.balanceOf(address(refLocker)), 0, "no dust stranded");
+    }
+
+    function test_collect_noReferralWhenReferrerZero() public {
+        (FinchLocker refLocker, MockERC20 tok) = _referralLocker(address(0));
+        _queueFeesFor(tok, 1000e18, 0);
+        refLocker.collect(address(tok));
+        // With no referrer, the whole protocol share goes to protocol as before.
+        assertEq(tok.balanceOf(protocol), (1000e18 * 2000) / 10000, "no referral carved");
+    }
+
+    // --- graduation reward ---
+
+    function _gradLocker() internal returns (FinchLocker gLocker, MockGraduationFactory gf, MockERC20 tok) {
+        gf = new MockGraduationFactory();
+        // graduation shifts 500 bps (5%) protocol->creator: 20% -> 15% once graduated.
+        gLocker = new FinchLocker(address(gf), address(pm), address(weth), protocol, admin, 0, 500);
+        vm.prank(admin);
+        gLocker.setRegistry(registry);
+        tok = new MockERC20("Grad", "GRAD");
+        bool isToken0 = address(tok) < address(weth);
+        vm.prank(address(gf));
+        gLocker.registerLaunch(address(tok), 11, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, address(0));
+    }
+
+    function test_markGraduated_reducesProtocolShare() public {
+        (FinchLocker gLocker, MockGraduationFactory gf, MockERC20 tok) = _gradLocker();
+
+        // Before graduation: 80/20.
+        _queueFeesFor(tok, 1000e18, 0);
+        gLocker.collect(address(tok));
+        assertEq(tok.balanceOf(creator), 800e18, "pre-grad creator 80%");
+        assertEq(tok.balanceOf(protocol), 200e18, "pre-grad protocol 20%");
+
+        // Can't mark graduated until the factory says so.
+        vm.expectRevert(FinchLocker.NotGraduated.selector);
+        gLocker.markGraduated(address(tok));
+
+        gf.setGraduated(address(tok), true);
+        gLocker.markGraduated(address(tok));
+        vm.expectRevert(FinchLocker.AlreadyGraduated.selector);
+        gLocker.markGraduated(address(tok));
+
+        // After graduation: 85/15 on the next collect.
+        _queueFeesFor(tok, 1000e18, 0);
+        gLocker.collect(address(tok));
+        assertEq(tok.balanceOf(creator), 800e18 + 850e18, "post-grad creator 85%");
+        assertEq(tok.balanceOf(protocol), 200e18 + 150e18, "post-grad protocol 15%");
     }
 }

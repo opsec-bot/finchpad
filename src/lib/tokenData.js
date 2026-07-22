@@ -5,7 +5,7 @@ import { formatEther } from "viem";
 import { publicClient } from "./chain.js";
 import { getLogsChunked } from "./logs.js";
 import {
-  PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED,
+  PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, FEATURED,
   factoryAbi, finchFactoryAbi, finchLockerAbi, poolAbi, tokenAbi,
 } from "./contracts.js";
 import { toCandles } from "./ohlc.js";
@@ -62,7 +62,7 @@ export async function getTokenDetail(token, factoryAddress) {
         .catch(() => null);
       // tuple: positionId, protocolShareBps, tokenIsToken0, controller, feeWallet,
       //        claimKind, githubId, githubClaimed, escrowDeadline, escrowedToken,
-      //        escrowedWeth, exists
+      //        escrowedWeth, exists, referrer, graduated
       if (l && l[11] === true) {
         launched = {
           exists: true,
@@ -196,4 +196,35 @@ export async function getTrades({ token, pool, tokenIsToken0, blocks = 5000n, ch
 export async function getCandles(opts, interval = 300) {
   const trades = await getTrades(opts);
   return { trades: trades.length, candles: toCandles(trades, interval) };
+}
+
+/**
+ * Reduce raw Featured logs to the currently-active featured tokens. The latest `until` per
+ * token wins (buying more days extends the window), and expired entries are dropped. Pure and
+ * exported so it can be unit-tested without a chain.
+ * @param {{args:{token:string,until:bigint|number}}[]} logs
+ * @param {number} nowSec  current unix time in seconds
+ */
+export function activeFeatured(logs, nowSec) {
+  const byToken = new Map();
+  for (const log of logs) {
+    const token = log.args.token;
+    const until = Number(log.args.until);
+    const prev = byToken.get(token);
+    if (!prev || until > prev.until) byToken.set(token, { token, until });
+  }
+  return [...byToken.values()].filter((f) => f.until > nowSec).sort((a, b) => b.until - a.until);
+}
+
+/**
+ * Currently-featured tokens read from a FeatureBoost contract's logs. Returns [] when no
+ * FeatureBoost address is configured (i.e. before finchpad's own contracts deploy).
+ * @param {{featureBoost?:string, blocks?:bigint, chunkSize?:bigint}} opts
+ */
+export async function getFeatured({ featureBoost, blocks = 50_000n, chunkSize = 2000n }) {
+  if (!featureBoost) return [];
+  const latest = await publicClient.getBlockNumber();
+  const fromBlock = floorBlock(latest > blocks ? latest - blocks : 0n);
+  const logs = await getLogsChunked({ address: featureBoost, event: FEATURED, fromBlock, toBlock: latest, chunkSize });
+  return activeFeatured(logs, Math.floor(Date.now() / 1000));
 }

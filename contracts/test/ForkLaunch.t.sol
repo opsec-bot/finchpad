@@ -46,7 +46,8 @@ contract ForkLaunchTest is Test {
 
         impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin);
-        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin);
+        // No referral / no graduation bonus here so the 80/20 fork assertions stay exact.
+        locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin, 0, 0);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
 
         vm.startPrank(admin);
@@ -83,7 +84,8 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3
+            restrictionBlocks: 3,
+            referrer: address(0)
         });
 
         deal(creator, 1 ether);
@@ -112,7 +114,7 @@ contract ForkLaunchTest is Test {
         // LP locked; control = creator; 80/20 snapshot
         assertEq(INonfungiblePositionManager(POSITION_MANAGER).ownerOf(positionId), address(locker), "locker owns LP");
         assertEq(locker.controllerOf(token), creator, "creator controls fee rights");
-        (, uint16 protocolBps,,,,,,,,,,) = locker.launches(token);
+        (, uint16 protocolBps,,,,,,,,,,,,) = locker.launches(token);
         assertEq(protocolBps, 2000, "80/20 split snapshotted");
 
         assertEq(feeRecipient.balance, 0.0005 ether, "launch fee forwarded");
@@ -141,7 +143,8 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            restrictionBlocks: 3
+            restrictionBlocks: 3,
+            referrer: address(0)
         });
 
         deal(creator, 5 ether);

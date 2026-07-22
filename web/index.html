@@ -48,6 +48,10 @@
 
 <div class="wrap">
   <div>
+    <div class="panel" id="featuredPanel" style="display:none;margin-bottom:16px">
+      <div style="margin-bottom:8px"><strong>★ featured</strong> <span class="dim">promoted</span></div>
+      <div id="featured"></div>
+    </div>
     <div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <strong>recent launches</strong>
@@ -96,6 +100,27 @@ async function loadHealth() {
     $("apiState").textContent = "api ok · factory " + short(h.factory);
   } catch (e) {
     $("apiState").innerHTML = '<span class="warn">api down — run: npm run api</span>';
+  }
+}
+
+// Paid featured placement. Hidden entirely until a FeatureBoost contract is configured and
+// something is actively featured, so it never shows an empty promoted rail.
+async function loadFeatured() {
+  try {
+    const d = await api("/featured");
+    if (!d.featured || !d.featured.length) { $("featuredPanel").style.display = "none"; return; }
+    $("featured").innerHTML = d.featured
+      .map((f) => `<div class="row" data-token="${esc(f.token)}">
+          <span>★ ${esc(short(f.token))}</span>
+          <span class="dim mono">until ${esc(new Date(f.until * 1000).toISOString().slice(0, 10))}</span>
+        </div>`)
+      .join("");
+    $("featuredPanel").style.display = "";
+    $("featured").querySelectorAll(".row").forEach((el) =>
+      el.addEventListener("click", () => select(el.dataset.token))
+    );
+  } catch (e) {
+    $("featuredPanel").style.display = "none";
   }
 }
 
@@ -227,8 +252,8 @@ async function loadTrades(token) {
   }
 }
 
-$("reload").addEventListener("click", loadList);
-loadHealth(); loadList();
+$("reload").addEventListener("click", () => { loadList(); loadFeatured(); });
+loadHealth(); loadList(); loadFeatured();
 </script>
 </body>
 </html>

@@ -8,6 +8,7 @@ import {FinchFactory} from "../src/FinchFactory.sol";
 import {FinchLocker} from "../src/FinchLocker.sol";
 import {FeeRightsRegistry} from "../src/FeeRightsRegistry.sol";
 import {FinchLock} from "../src/FinchLock.sol";
+import {FeatureBoost} from "../src/FeatureBoost.sol";
 import {ClaimKind} from "../src/interfaces/IFinchLockerControl.sol";
 import {ISwapRouter02, IWETH} from "../src/interfaces/IUniswapV3.sol";
 
@@ -49,9 +50,11 @@ contract SeedLocal is Script {
 
         FinchToken impl = new FinchToken();
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me);
-        FinchLocker locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me);
+        // referral: 10% of the protocol share; graduation: 20%->15% once graduated.
+        FinchLocker locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500);
         FeeRightsRegistry registry = new FeeRightsRegistry(address(locker), me, me);
         FinchLock lockVault = new FinchLock();
+        FeatureBoost featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);
         factory.setLocker(address(locker));
         locker.setRegistry(address(registry));
 
@@ -59,16 +62,21 @@ contract SeedLocal is Script {
         IWETH(WETH).deposit{value: 3 ether}();
         IWETH(WETH).approve(SWAP_ROUTER, type(uint256).max);
 
-        address a = _launch("Finch Genesis", "GENESIS", "the first one", ClaimKind.None, 0);
-        address b = _launch("Doge Finch", "DFINCH", "much launch", ClaimKind.None, 0);
-        address c = _launch("Repo Coin", "REPO", "launched for a github repo", ClaimKind.Repo, 123456789);
-        address d = _launch("Dev Coin", "DEVC", "launched for a github user", ClaimKind.User, 987654321);
+        address referrer = address(0xBEEF); // demo referrer wallet for one launch
+        address a = _launch("Finch Genesis", "GENESIS", "the first one", ClaimKind.None, 0, address(0));
+        address b = _launch("Doge Finch", "DFINCH", "much launch", ClaimKind.None, 0, referrer);
+        address c = _launch("Repo Coin", "REPO", "launched for a github repo", ClaimKind.Repo, 123456789, address(0));
+        address d = _launch("Dev Coin", "DEVC", "launched for a github user", ClaimKind.User, 987654321, address(0));
 
         _buy(a, 0.4 ether);
-        _buy(b, 0.15 ether);
+        _buy(b, 0.15 ether); // referred launch: collect() will pay 0xBEEF a slice of protocol fees
         _buy(c, 0.05 ether);
         _buy(d, 0.02 ether);
         _buy(a, 0.25 ether); // second trade so charts have more than one candle point
+
+        // Advertising: feature GENESIS for 7 days and buy DFINCH a verified badge.
+        featureBoost.feature{value: 0.07 ether}(a, 7);
+        featureBoost.verify{value: 0.05 ether}(b);
 
         vm.stopBroadcast();
 
@@ -78,8 +86,9 @@ contract SeedLocal is Script {
         console.log("FinchLocker:       ", address(locker));
         console.log("FeeRightsRegistry: ", address(registry));
         console.log("FinchLock:         ", address(lockVault));
-        console.log("token GENESIS:     ", a);
-        console.log("token DFINCH:      ", b);
+        console.log("FeatureBoost:      ", address(featureBoost));
+        console.log("token GENESIS:     ", a, "(featured 7d)");
+        console.log("token DFINCH:      ", b, "(referred by 0xBEEF, verified badge)");
         console.log("token REPO:        ", c, "(repo id 123456789, fees escrow until claim)");
         console.log("token DEVC:        ", d, "(user id 987654321, fees escrow until claim)");
         console.log("");
@@ -87,10 +96,14 @@ contract SeedLocal is Script {
         console.log("  FINCHPAD_RPC_URL=http://localhost:8545 npm run api -- --factory <FinchFactory>");
     }
 
-    function _launch(string memory name, string memory symbol, string memory desc, ClaimKind kind, uint256 githubId)
-        internal
-        returns (address token)
-    {
+    function _launch(
+        string memory name,
+        string memory symbol,
+        string memory desc,
+        ClaimKind kind,
+        uint256 githubId,
+        address referrer
+    ) internal returns (address token) {
         // The clone lands at the factory's next CREATE nonce; ordering vs WETH decides the
         // single-sided side, so we must know the address before choosing tick params.
         uint64 nonce = vm.getNonce(address(factory));
@@ -113,7 +126,8 @@ contract SeedLocal is Script {
                 initialSqrtPriceX96: sqrtP,
                 tickLower: lower,
                 tickUpper: upper,
-                restrictionBlocks: 2
+                restrictionBlocks: 2,
+                referrer: referrer
             })
         );
         require(token == predicted, "clone address prediction drifted");
