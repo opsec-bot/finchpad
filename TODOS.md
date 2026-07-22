@@ -58,7 +58,24 @@ Rationale (user call): the caps punished real buyers as often as bots, and their
 surfaced through Uniswap as an opaque "TF" that is indistinguishable from a broken pool —
 it cost real debugging time twice in one day.
 
-- [ ] **CONSEQUENCE — R2 is now urgent, not optional.** With no protection, the first buyer
+- [x] **R2 SHIPPED — atomic creator buy + fee wallet at launch.**
+      `LaunchParams` gains `creatorBuyAmount` and `feeWallet`. The opening buy is an ordinary
+      swap through the public router at AMM price — no minted allocation, no discount, no
+      privileged path — and is atomic, so nobody can position ahead of it. `feeWallet` is set
+      at registration, so fees never briefly point at the launcher first. Factory takes the
+      router as a constructor arg (`FINCH_SWAP_ROUTER`).
+      Tests (90 green): buy executes inside launch, creator receives the tokens, **the creator
+      pays exactly what an external first buyer pays for the same size** (asserted by pricing
+      an identical no-buy launch through the router and comparing), underfunded buy reverts,
+      zero-buy launch works, fee wallet routes fees from block one, zero fee wallet defaults
+      to the creator.
+- [ ] **OPEN — fee wallet immutability conflicts with the fee-rights layer.** The review asks
+      that the fee recipient only ever be settable at launch. That cannot hold as written:
+      GitHub claims move the fee wallet from escrow to the claimant (the whole feature), and
+      admin CTO reassigns abandoned tokens. Making it immutable deletes both. Options: keep it
+      mutable but fully evented and surfaced (current), OR make it immutable only for
+      non-GitHub launches. Needs a call.
+- [x] ~~CONSEQUENCE — R2 is now urgent~~ (done above). Original note: With no protection, the first buyer
       in the launch block wins, and a creator has no way to be that buyer: `launch()` does
       not buy, and a follow-up transaction lands a block later. Anyone watching the mempool
       can take the opening size. An atomic initial buy inside `launch()` is now the ONLY way

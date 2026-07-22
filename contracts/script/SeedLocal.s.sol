@@ -56,7 +56,7 @@ contract SeedLocal is Script {
         vm.startBroadcast();
 
         FinchToken impl = new FinchToken();
-        factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me);
+        factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me, SWAP_ROUTER);
         // referral: 10% of the protocol share; graduation: 20%->15% once graduated.
         locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500, 0.25 ether);
         registry = new FeeRightsRegistry(address(locker), me, me);
@@ -139,7 +139,7 @@ contract SeedLocal is Script {
             ? (SQRT_A_TOKEN0, int24(-207000), int24(887200))
             : (SQRT_A_TOKEN1, int24(-887200), int24(207000));
 
-        (token,,) = factory.launch{value: 0.0005 ether}(
+        (token,,,) = factory.launch{value: 0.0005 ether}(
             FinchFactory.LaunchParams({
                 name: name,
                 symbol: symbol,
@@ -151,7 +151,9 @@ contract SeedLocal is Script {
                 initialSqrtPriceX96: sqrtP,
                 tickLower: lower,
                 tickUpper: upper,
-                referrer: referrer
+                referrer: referrer,
+                feeWallet: address(0),
+                creatorBuyAmount: 0
             })
         );
         require(token == predicted, "clone address prediction drifted");

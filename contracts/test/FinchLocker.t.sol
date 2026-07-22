@@ -36,7 +36,7 @@ contract FinchLockerTest is Test {
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
         locker.registerLaunch(
-            address(token), POSITION_ID, PROTOCOL_BPS, tokenIsToken0, creator, ClaimKind.None, 0, address(0)
+            address(token), POSITION_ID, PROTOCOL_BPS, tokenIsToken0, creator, ClaimKind.None, 0, address(0), address(0)
         );
     }
 
@@ -45,7 +45,7 @@ contract FinchLockerTest is Test {
         gh = new MockERC20("Gh", "GH");
         bool ghIsToken0 = address(gh) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(gh), 7, PROTOCOL_BPS, ghIsToken0, creator, kind, GITHUB_ID, address(0));
+        locker.registerLaunch(address(gh), 7, PROTOCOL_BPS, ghIsToken0, creator, kind, GITHUB_ID, address(0), address(0));
     }
 
     function _queueFees(MockERC20 tok, uint256 tokenFees, uint256 wethFees) internal {
@@ -60,24 +60,24 @@ contract FinchLockerTest is Test {
 
     function test_registerLaunch_onlyFactory() public {
         vm.expectRevert(FinchLocker.NotFactory.selector);
-        locker.registerLaunch(address(0x1), 1, 1000, true, creator, ClaimKind.None, 0, address(0));
+        locker.registerLaunch(address(0x1), 1, 1000, true, creator, ClaimKind.None, 0, address(0), address(0));
     }
 
     function test_registerLaunch_noDoubleRegister() public {
         vm.prank(factory);
         vm.expectRevert(FinchLocker.AlreadyRegistered.selector);
-        locker.registerLaunch(address(token), 1, 1000, true, creator, ClaimKind.None, 0, address(0));
+        locker.registerLaunch(address(token), 1, 1000, true, creator, ClaimKind.None, 0, address(0), address(0));
     }
 
     function test_registerLaunch_validatesGithubBinding() public {
         // github kind requires a nonzero id
         vm.prank(factory);
         vm.expectRevert(FinchLocker.InvalidGithubBinding.selector);
-        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.Repo, 0, address(0));
+        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.Repo, 0, address(0), address(0));
         // and a plain launch must not smuggle one in
         vm.prank(factory);
         vm.expectRevert(FinchLocker.InvalidGithubBinding.selector);
-        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.None, GITHUB_ID, address(0));
+        locker.registerLaunch(address(0x2), 1, 1000, true, creator, ClaimKind.None, GITHUB_ID, address(0), address(0));
     }
 
     function test_setRegistry_onceOnly() public {
@@ -271,7 +271,7 @@ contract FinchLockerTest is Test {
         tok = new MockERC20("Ref", "REF");
         bool isToken0 = address(tok) < address(weth);
         vm.prank(factory);
-        refLocker.registerLaunch(address(tok), 9, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, referrer);
+        refLocker.registerLaunch(address(tok), 9, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, referrer, address(0));
     }
 
     function _queueFeesFor(MockERC20 tok, uint256 tokenFees, uint256 wethFees) internal {
@@ -326,7 +326,7 @@ contract FinchLockerTest is Test {
         tok = new MockERC20("Grad", "GRAD");
         bool isToken0 = address(tok) < address(weth);
         vm.prank(factory);
-        gLocker.registerLaunch(address(tok), 11, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, address(0));
+        gLocker.registerLaunch(address(tok), 11, PROTOCOL_BPS, isToken0, creator, ClaimKind.None, 0, address(0), address(0));
     }
 
     function test_graduation_derivedFromCollectedWethFees() public {

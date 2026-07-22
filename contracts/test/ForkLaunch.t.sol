@@ -12,7 +12,8 @@ import {
     IUniswapV3Factory,
     INonfungiblePositionManager,
     IUniswapV3Pool,
-    ISwapRouter02
+    ISwapRouter02,
+    IWETH
 } from "../src/interfaces/IUniswapV3.sol";
 
 /// @notice Curve-A launch + a real buy against the live Robinhood Chain Uniswap V3, on a fork.
@@ -47,7 +48,7 @@ contract ForkLaunchTest is Test {
         vm.createSelectFork(vm.envOr("FORK_RPC_URL", string("rh_mainnet")));
 
         impl = new FinchToken();
-        factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin);
+        factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, feeRecipient, admin, SWAP_ROUTER);
         // No referral / no graduation bonus here so the 80/20 fork assertions stay exact.
         locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, protocol, admin, 0, 0, GRAD_FEE_THRESHOLD);
         registry = new FeeRightsRegistry(address(locker), signer, admin);
@@ -86,12 +87,14 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            referrer: address(0)
+            referrer: address(0),
+            feeWallet: address(0),
+            creatorBuyAmount: 0
         });
 
         deal(creator, 1 ether);
         vm.prank(creator);
-        (token, pool, positionId) = factory.launch{value: 0.0005 ether}(p);
+        (token, pool, positionId,) = factory.launch{value: 0.0005 ether}(p);
     }
 
     function test_fork_fullLaunch() public {
@@ -144,7 +147,9 @@ contract ForkLaunchTest is Test {
             initialSqrtPriceX96: sqrtP,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            referrer: address(0)
+            referrer: address(0),
+            feeWallet: address(0),
+            creatorBuyAmount: 0
         });
 
         deal(creator, 5 ether);
@@ -269,5 +274,132 @@ contract ForkLaunchTest is Test {
 
         emit log_named_uint("tokens bought for 0.05 WETH", out);
         emit log_named_decimal_uint("graduation progress (WETH fees)", earned1, 18);
+    }
+
+    // --- optional atomic creator buy -----------------------------------------------------
+    //
+    // With launch protection gone, this is the creator's only way to be the first buyer:
+    // a follow-up transaction lands a block later, where anyone watching the mempool can get
+    // ahead of it. The buy is an ordinary router swap at AMM price — no minted allocation,
+    // no discount, no privileged path.
+
+    function _launchWithBuy(uint256 buyAmount, address feeWallet)
+        internal
+        returns (address token, uint256 bought)
+    {
+        address predicted = vm.computeCreateAddress(address(factory), vm.getNonce(address(factory)));
+        bool isToken0 = predicted < WETH;
+        (uint160 sqrtP, int24 lo, int24 hi) =
+            isToken0 ? (SQRT_A_TOKEN0, int24(-207000), int24(887200)) : (SQRT_A_TOKEN1, int24(-887200), int24(207000));
+
+        deal(creator, 10 ether);
+        vm.prank(creator);
+        (token,,, bought) = factory.launch{value: 0.0005 ether + buyAmount}(
+            FinchFactory.LaunchParams({
+                name: "Opening Buy",
+                symbol: "OPEN",
+                logo: "",
+                description: "",
+                socials: _socials(),
+                claimKind: ClaimKind.None,
+                githubId: 0,
+                initialSqrtPriceX96: sqrtP,
+                tickLower: lo,
+                tickUpper: hi,
+                referrer: address(0),
+                feeWallet: feeWallet,
+                creatorBuyAmount: buyAmount
+            })
+        );
+    }
+
+    function test_fork_creatorBuyExecutesInsideLaunch() public {
+        (address token, uint256 bought) = _launchWithBuy(0.5 ether, address(0));
+
+        assertGt(bought, 0, "creator received tokens");
+        // Balance is the buy plus the single-sided mint dust the factory sweeps to the
+        // creator; the dust is sub-1e12 against a 1e27 supply.
+        uint256 held = IERC20(token).balanceOf(creator);
+        assertGe(held, bought, "tokens went to the creator, not the factory");
+        assertLt(held - bought, 1e12, "difference is only mint dust");
+        assertEq(IERC20(token).balanceOf(address(factory)), 0, "factory retains nothing");
+        emit log_named_decimal_uint("creator bought (tokens)", bought, 18);
+    }
+
+    /// The creator must get exactly what any other trader would for the same size — same
+    /// pool, same 1% fee, same curve. Quoted against the pool AFTER the launch, then compared
+    /// with what the atomic buy actually paid.
+    function test_fork_creatorPaysNormalAmmPrice() public {
+        (address tokenA, uint256 bought) = _launchWithBuy(0.5 ether, address(0));
+
+        // Launch an identical token with no creator buy, then buy the same size externally.
+        (address tokenB,) = _launchWithBuy(0, address(0));
+        deal(buyer, 10 ether);
+        vm.startPrank(buyer);
+        IWETH(WETH).deposit{value: 0.5 ether}();
+        IERC20(WETH).approve(SWAP_ROUTER, 0.5 ether);
+        uint256 external_ = ISwapRouter02(SWAP_ROUTER).exactInputSingle(
+            ISwapRouter02.ExactInputSingleParams({
+                tokenIn: WETH,
+                tokenOut: tokenB,
+                fee: 10000,
+                recipient: buyer,
+                amountIn: 0.5 ether,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            })
+        );
+        vm.stopPrank();
+
+        assertEq(bought, external_, "creator buy priced identically to an ordinary first buy");
+        assertTrue(tokenA != tokenB);
+    }
+
+    function test_fork_launchWorksWithZeroCreatorBuy() public {
+        (address token, uint256 bought) = _launchWithBuy(0, address(0));
+        assertEq(bought, 0, "no buy performed");
+        // Only the swept mint dust, never a purchased allocation.
+        assertLt(IERC20(token).balanceOf(token) + IERC20(token).balanceOf(creator), 1e12, "creator holds only dust");
+    }
+
+    function test_fork_underfundedCreatorBuyReverts() public {
+        address predicted = vm.computeCreateAddress(address(factory), vm.getNonce(address(factory)));
+        bool isToken0 = predicted < WETH;
+        (uint160 sqrtP, int24 lo, int24 hi) =
+            isToken0 ? (SQRT_A_TOKEN0, int24(-207000), int24(887200)) : (SQRT_A_TOKEN1, int24(-887200), int24(207000));
+
+        deal(creator, 10 ether);
+        vm.prank(creator);
+        vm.expectRevert(FinchFactory.InsufficientLaunchFee.selector);
+        // asks for a 1 ETH buy but only sends the launch fee plus 0.5
+        factory.launch{value: 0.0005 ether + 0.5 ether}(
+            FinchFactory.LaunchParams({
+                name: "Underfunded",
+                symbol: "UF",
+                logo: "",
+                description: "",
+                socials: _socials(),
+                claimKind: ClaimKind.None,
+                githubId: 0,
+                initialSqrtPriceX96: sqrtP,
+                tickLower: lo,
+                tickUpper: hi,
+                referrer: address(0),
+                feeWallet: address(0),
+                creatorBuyAmount: 1 ether
+            })
+        );
+    }
+
+    function test_fork_feeWalletConfiguredAtLaunch() public {
+        address vault = makeAddr("someoneElsesWallet");
+        (address token,) = _launchWithBuy(0, vault);
+        assertEq(locker.feeWalletOf(token), vault, "fees point elsewhere from block one");
+        assertEq(locker.controllerOf(token), creator, "creator still controls the fee right");
+    }
+
+    function test_fork_zeroFeeWalletDefaultsToCreator() public {
+        (address token,) = _launchWithBuy(0, address(0));
+        assertEq(locker.feeWalletOf(token), creator, "zero means the creator");
     }
 }

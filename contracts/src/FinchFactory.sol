@@ -7,7 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FinchToken} from "./FinchToken.sol";
 import {FinchLocker} from "./FinchLocker.sol";
-import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
+import {INonfungiblePositionManager, ISwapRouter02} from "./interfaces/IUniswapV3.sol";
 import {ClaimKind} from "./interfaces/IFinchLockerControl.sol";
 
 /**
@@ -36,6 +36,9 @@ contract FinchFactory is ReentrancyGuard {
     // destination ever needs to change, point this at a multisig/splitter you control and
     // rotate inside that, or ship a new factory (contracts here are immutable anyway).
     address public immutable feeRecipient;
+    /// @notice The AMM router the optional creator buy goes through — the same one every
+    ///         other trader uses. The creator gets no privileged path or price.
+    ISwapRouter02 public immutable swapRouter;
     FinchLocker public locker; // settable once (breaks factory <-> locker deploy cycle)
 
     struct LaunchParams {
@@ -49,13 +52,24 @@ contract FinchFactory is ReentrancyGuard {
         uint160 initialSqrtPriceX96; // starting pool price (respecting token ordering)
         int24 tickLower; // single-sided range for the full supply
         int24 tickUpper;
-        address referrer; // who referred this launch; earns a slice of the protocol fee share.
+        address referrer;
+        /// @dev Where the creator share of trading fees goes, fixed at launch so there is no
+        ///      window where fees point at the launcher first. Zero means the creator.
+        ///      Ignored for GitHub-bound launches, where fees escrow for the bound identity.
+        address feeWallet;
+        /// @dev Optional opening buy, executed in this same transaction through the public
+        ///      router at the normal AMM price. Zero to skip. This is the creator's only way
+        ///      to be the first buyer now that launch protection is gone — without it they
+        ///      are guaranteed to lose the opening to anyone watching the mempool.
+        uint256 creatorBuyAmount; // who referred this launch; earns a slice of the protocol fee share.
             // address(0) = no referral. May not be the launcher (see SelfReferral).
     }
 
     event Launched(
         address indexed token, address indexed creator, address pool, uint256 positionId, bool tokenIsToken0
     );
+    /// @notice The creator took the opening trade in the launch transaction, at AMM price.
+    event CreatorBought(address indexed token, address indexed creator, uint256 ethIn, uint256 tokensOut);
 
     error LockerAlreadySet();
     error LockerNotSet();
@@ -73,11 +87,12 @@ contract FinchFactory is ReentrancyGuard {
         address weth_,
         uint16 protocolShareBps_,
         address feeRecipient_,
-        address admin_
+        address admin_,
+        address swapRouter_
     ) {
         if (
             tokenImplementation_ == address(0) || positionManager_ == address(0) || weth_ == address(0)
-                || feeRecipient_ == address(0) || admin_ == address(0)
+                || feeRecipient_ == address(0) || admin_ == address(0) || swapRouter_ == address(0)
         ) revert ZeroAddress();
         tokenImplementation = tokenImplementation_;
         positionManager = INonfungiblePositionManager(positionManager_);
@@ -85,6 +100,7 @@ contract FinchFactory is ReentrancyGuard {
         protocolShareBps = protocolShareBps_;
         feeRecipient = feeRecipient_;
         admin = admin_;
+        swapRouter = ISwapRouter02(swapRouter_);
     }
 
     function setLocker(address locker_) external {
@@ -122,10 +138,10 @@ contract FinchFactory is ReentrancyGuard {
         external
         payable
         nonReentrant
-        returns (address token, address pool, uint256 positionId)
+        returns (address token, address pool, uint256 positionId, uint256 amountOut)
     {
         if (address(locker) == address(0)) revert LockerNotSet();
-        if (msg.value < LAUNCH_FEE) revert InsufficientLaunchFee();
+        if (msg.value < LAUNCH_FEE + p.creatorBuyAmount) revert InsufficientLaunchFee();
         // A launcher can't refer themselves — that would just skim their own protocol fees.
         if (p.referrer == msg.sender) revert SelfReferral();
 
@@ -179,17 +195,47 @@ contract FinchFactory is ReentrancyGuard {
         uint256 dust = IERC20(token).balanceOf(address(this));
         if (dust > 0) IERC20(token).safeTransfer(msg.sender, dust);
 
-        // 5. Register the launch with the locker (fee split snapshot + control = creator).
+        // 5. Register the launch with the locker (fee split snapshot, control, fee wallet).
         locker.registerLaunch(
-            token, positionId, protocolShareBps, tokenIsToken0, msg.sender, p.claimKind, p.githubId, p.referrer
+            token,
+            positionId,
+            protocolShareBps,
+            tokenIsToken0,
+            msg.sender,
+            p.claimKind,
+            p.githubId,
+            p.referrer,
+            p.feeWallet
         );
 
-        // 6. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
+        // 6. Optional opening buy, in this same transaction.
+        //
+        // Deliberately an ordinary swap: the public router, the public pool, the same 1% fee,
+        // AMM pricing, no minted allocation and no discount. The creator is simply the first
+        // buyer. Being atomic is the entire point — the pool did not exist a moment ago, so
+        // nobody can position ahead of this, and it needs no slippage bound for the same
+        // reason. Tokens go to the launcher, not the factory.
+        if (p.creatorBuyAmount > 0) {
+            amountOut = swapRouter.exactInputSingle{value: p.creatorBuyAmount}(
+                ISwapRouter02.ExactInputSingleParams({
+                    tokenIn: weth,
+                    tokenOut: token,
+                    fee: POOL_FEE,
+                    recipient: msg.sender,
+                    amountIn: p.creatorBuyAmount,
+                    amountOutMinimum: 0,
+                    sqrtPriceLimitX96: 0
+                })
+            );
+            emit CreatorBought(token, msg.sender, p.creatorBuyAmount, amountOut);
+        }
+
+        // 7. Forward exactly the launch fee and refund any overpayment. Forwarding the whole
         //    msg.value would silently pocket a fat-fingered 1 ETH on a 0.0005 ETH fee.
         (bool ok,) = feeRecipient.call{value: LAUNCH_FEE}("");
         if (!ok) revert FeeForwardFailed();
 
-        uint256 excess = msg.value - LAUNCH_FEE;
+        uint256 excess = msg.value - LAUNCH_FEE - p.creatorBuyAmount;
         if (excess > 0) {
             (bool refunded,) = msg.sender.call{value: excess}("");
             if (!refunded) revert RefundFailed();

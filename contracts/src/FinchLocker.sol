@@ -175,7 +175,8 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         address creator,
         ClaimKind claimKind,
         uint256 githubId,
-        address referrer
+        address referrer,
+        address feeWallet_
     ) external onlyFactory {
         if (launches[token].exists) revert AlreadyRegistered();
         if (creator == address(0)) revert ZeroAddress();
@@ -186,14 +187,19 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         // GitHub launches: the fee right belongs to the bound identity, not the launcher.
         // controller/feeWallet stay zero (nobody can redirect, creator share escrows here)
         // until the claim settles.
+        //
+        // Otherwise the creator controls the token, but fees may be directed elsewhere from
+        // the very first block — chosen at launch, so there is no window where fees briefly
+        // point at the launcher before a follow-up transaction moves them.
         address owner = github ? address(0) : creator;
+        address payTo = github ? address(0) : (feeWallet_ == address(0) ? creator : feeWallet_);
 
         launches[token] = Launch({
             positionId: positionId,
             protocolShareBps: protocolShareBps,
             tokenIsToken0: tokenIsToken0,
             controller: owner,
-            feeWallet: owner,
+            feeWallet: payTo,
             claimKind: claimKind,
             githubId: githubId,
             githubClaimed: false,

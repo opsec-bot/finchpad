@@ -43,7 +43,7 @@ contract FuzzTest is Test {
         address t = address(uint160(uint256(keccak256(abi.encode(tokenFees, wethFees, protocolBps)))));
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0), address(0));
 
         token.mint(address(pm), tokenFees);
         weth.mint(address(pm), wethFees);
@@ -70,7 +70,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, address(0), address(0));
 
         token.mint(address(pm), fees);
         (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
@@ -93,7 +93,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.User, 42, address(0));
+        locker.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.User, 42, address(0), address(0));
 
         uint256 total;
         uint128[2] memory rounds = [fees1, fees2];
@@ -135,7 +135,7 @@ contract FuzzTest is Test {
 
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        rl.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, referrer);
+        rl.registerLaunch(address(token), 1, protocolBps, tokenIsToken0, creator, ClaimKind.None, 0, referrer, address(0));
 
         token.mint(address(pm), fees);
         (address t0, address t1, uint256 a0, uint256 a1) = tokenIsToken0
@@ -169,7 +169,7 @@ contract FuzzTest is Test {
         gl.setRegistry(registry);
         bool tokenIsToken0 = address(token) < address(weth);
         vm.prank(factory);
-        gl.registerLaunch(address(token), 1, 2000, tokenIsToken0, creator, ClaimKind.None, 0, address(0));
+        gl.registerLaunch(address(token), 1, 2000, tokenIsToken0, creator, ClaimKind.None, 0, address(0), address(0));
 
         // Donations to the locker must never count as traction.
         weth.mint(address(gl), donation);

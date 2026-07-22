@@ -27,6 +27,7 @@ import {FeatureBoost} from "../src/FeatureBoost.sol";
  * Required env:
  *   FINCH_DEPLOYER            deployer address (Ledger path). Or PRIVATE_KEY for the raw-key path.
  *   FINCH_POSITION_MANAGER    Uniswap V3 NonfungiblePositionManager for the target chain
+ *   FINCH_SWAP_ROUTER         Uniswap SwapRouter02 (the optional creator buy routes through it)
  *   FINCH_WETH                WETH (quote token) for the target chain
  * Optional env (default in parens):
  *   FINCH_ADMIN               admin/owner (deployer)
@@ -54,6 +55,7 @@ contract Deploy is Script {
         address deployer = pk != 0 ? vm.addr(pk) : vm.envAddress("FINCH_DEPLOYER");
 
         address positionManager = vm.envAddress("FINCH_POSITION_MANAGER");
+        address swapRouter = vm.envAddress("FINCH_SWAP_ROUTER");
         address weth = vm.envAddress("FINCH_WETH");
         address admin = vm.envOr("FINCH_ADMIN", deployer);
         address protocolRecipient = vm.envOr("FINCH_PROTOCOL_RECIPIENT", deployer);
@@ -71,7 +73,7 @@ contract Deploy is Script {
 
         FinchToken impl = new FinchToken();
         FinchFactory factory =
-            new FinchFactory(address(impl), positionManager, weth, protocolBps, feeRecipient, admin);
+            new FinchFactory(address(impl), positionManager, weth, protocolBps, feeRecipient, admin, swapRouter);
         FinchLocker locker =
             new FinchLocker(address(factory), positionManager, weth, protocolRecipient, admin, referralBps, gradBonusBps, gradFeeThreshold);
         FeeRightsRegistry registry = new FeeRightsRegistry(address(locker), githubSigner, admin);

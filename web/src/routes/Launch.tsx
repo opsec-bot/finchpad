@@ -29,6 +29,8 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     bind: "none" as "none" | "repo" | "user",
     githubId: "",
     referrer: "",
+    feeWallet: "",
+    creatorBuy: "",
     startMcapEth: String(CURVE_A.startMcapEth),
   });
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -48,6 +50,8 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
     if (f.referrer && !/^0x[a-fA-F0-9]{40}$/.test(f.referrer)) p.push("referrer must be a 0x address");
     if (f.referrer && wallet && f.referrer.toLowerCase() === wallet.address.toLowerCase())
       p.push("you cannot refer yourself; the factory rejects it");
+    if (f.feeWallet && !/^0x[a-fA-F0-9]{40}$/.test(f.feeWallet)) p.push("fee recipient must be a 0x address");
+    if (f.creatorBuy && !(Number(f.creatorBuy) >= 0)) p.push("opening buy must be a positive amount");
     if (!(startMcap > 0)) p.push("start market cap must be positive");
     return p;
   }, [f, wallet, startMcap]);
@@ -80,6 +84,8 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
         githubId: f.bind === "none" ? 0n : BigInt(f.githubId),
         referrer: (f.referrer || zeroAddress) as Address,
+        feeWallet: (f.feeWallet || zeroAddress) as Address,
+        creatorBuyAmount: f.creatorBuy ? parseEther(f.creatorBuy) : 0n,
         initialSqrtPriceX96: curve.initialSqrtPriceX96,
         tickLower: curve.tickLower,
         tickUpper: curve.tickUpper,
@@ -93,7 +99,7 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         abi: finchFactoryAbi,
         functionName: "launch",
         args: [params],
-        value: LAUNCH_FEE,
+        value: LAUNCH_FEE + (f.creatorBuy ? parseEther(f.creatorBuy) : 0n),
         account: wallet.address as Address,
       });
 
@@ -218,6 +224,36 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
         </div>
       )}
 
+      {f.bind === "none" && (
+        <div className="field">
+          <label>
+            fee recipient (optional)
+            <span className="spacer-inline dim">defaults to you</span>
+          </label>
+          <input value={f.feeWallet} onChange={set("feeWallet")} placeholder="0x — any wallet you choose" />
+          <p className="dim" style={{ marginTop: 6 }}>
+            Where the creator share of trading fees is paid, fixed at launch. You keep control of
+            the token either way.
+          </p>
+        </div>
+      )}
+
+      <div className="field">
+        <label>
+          opening buy (optional)
+          {ethUsd && f.creatorBuy ? (
+            <span className="spacer-inline dim">{usd(Number(f.creatorBuy) * ethUsd)}</span>
+          ) : null}
+        </label>
+        <input value={f.creatorBuy} onChange={set("creatorBuy")} placeholder="0.0 ETH" inputMode="decimal" />
+        <p className="dim" style={{ marginTop: 6 }}>
+          Buy your own token in the same transaction, at the normal pool price through the public
+          router — no discount and no reserved allocation. Without it you cannot be the first
+          buyer: a separate transaction lands a block later, where anyone watching can get ahead
+          of you.
+        </p>
+      </div>
+
       <div className="field">
         <label>referrer (optional)</label>
         <input value={f.referrer} onChange={set("referrer")} placeholder="0x, paid out of the protocol share" />
@@ -236,6 +272,14 @@ export default function Launch({ onLaunched }: { onLaunched: (token: string) => 
           </div>
           <div>liquidity</div>
           <div>100% locked, permanently</div>
+          <div>opening buy</div>
+          <div>
+            {f.creatorBuy && Number(f.creatorBuy) > 0
+              ? `${f.creatorBuy} ETH at pool price${ethUsd ? ` (${usd(Number(f.creatorBuy) * ethUsd)})` : ""}`
+              : "none"}
+          </div>
+          <div>fees paid to</div>
+          <div>{f.bind !== "none" ? "escrow, until the GitHub owner claims" : f.feeWallet || "you"}</div>
           <div>your fee share</div>
           <div>{f.bind === "none" ? "80% of trading fees" : "none, escrowed for the GitHub owner"}</div>
         </div>

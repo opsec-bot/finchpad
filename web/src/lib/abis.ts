@@ -9,7 +9,7 @@ export const finchFactoryAbi = parseAbi([
   // Field order must match FinchFactory.LaunchParams EXACTLY — the tuple order is part of
   // the selector, so a reordering silently produces a call that matches no function and
   // reverts with empty data. test/abiSync.test.js pins these against the compiled artifacts.
-  "function launch((string name,string symbol,string logo,string description,(string twitter,string telegram,string discord,string website,string farcaster) socials,uint8 claimKind,uint256 githubId,uint160 initialSqrtPriceX96,int24 tickLower,int24 tickUpper,address referrer) p) payable returns (address token, address pool, uint256 positionId)",
+  "function launch((string name,string symbol,string logo,string description,(string twitter,string telegram,string discord,string website,string farcaster) socials,uint8 claimKind,uint256 githubId,uint160 initialSqrtPriceX96,int24 tickLower,int24 tickUpper,address referrer,address feeWallet,uint256 creatorBuyAmount) p) payable returns (address token, address pool, uint256 positionId, uint256 amountOut)",
   "event Launched(address indexed token, address indexed creator, address pool, uint256 positionId, bool tokenIsToken0)",
 ]);
 
