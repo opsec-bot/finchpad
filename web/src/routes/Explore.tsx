@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Rocket } from "lucide-react";
+import { Rocket, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ProtocolStats from "@/components/ProtocolStats";
 import TokenCard from "@/components/TokenCard";
@@ -9,12 +10,13 @@ import { api } from "@/lib/api";
 import { buildTokenView } from "@/lib/tokenView";
 import type { TokenView } from "@/lib/tokenView";
 
-type Sort = "trending" | "mcap" | "new" | "graduating";
+type Sort = "trending" | "mcap" | "new" | "oldest" | "graduating";
 
 const SORTS: { value: Sort; label: string }[] = [
   { value: "trending", label: "Trending" },
   { value: "mcap", label: "Top market cap" },
   { value: "new", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
   { value: "graduating", label: "Graduating" },
 ];
 
@@ -28,6 +30,7 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
   const [count, setCount] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sort, setSort] = useState<Sort>("trending");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -65,19 +68,30 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
 
   const sorted = useMemo(() => {
     if (!views) return [];
-    const list = [...views];
+    // Search first: name, symbol, or contract address (paste a CA to jump to a token).
+    const q = query.trim().toLowerCase();
+    let list = q
+      ? views.filter(
+          (t) =>
+            t.name.toLowerCase().includes(q) ||
+            t.symbol.toLowerCase().includes(q) ||
+            t.address.toLowerCase().includes(q),
+        )
+      : [...views];
     switch (sort) {
       case "mcap":
         return list.sort((a, b) => b.marketCapWeth - a.marketCapWeth);
       case "new":
         return list.sort((a, b) => b.block - a.block);
+      case "oldest":
+        return list.sort((a, b) => a.block - b.block);
       case "graduating":
         return list.filter((t) => !t.graduated).sort((a, b) => b.graduationProgress - a.graduationProgress);
       case "trending":
       default:
         return list.sort((a, b) => b.change24h - a.change24h);
     }
-  }, [views, sort]);
+  }, [views, sort, query]);
 
   const graduated = views?.filter((t) => t.graduated).length ?? 0;
   const verified = views?.filter((t) => t.githubVerified).length ?? 0;
@@ -107,7 +121,18 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
             ))}
           </TabsList>
         </Tabs>
-        {views && <span className="text-sm text-muted-foreground tnum">{sorted.length}</span>}
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, symbol, or CA…"
+              className="h-9 w-56 pl-8 text-sm md:w-72"
+            />
+          </div>
+          {views && <span className="text-sm text-muted-foreground tnum">{sorted.length}</span>}
+        </div>
       </div>
 
       {err && <Card className="border-destructive/40 p-4 text-sm text-destructive">{err}</Card>}
