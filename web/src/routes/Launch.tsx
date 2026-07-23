@@ -29,6 +29,45 @@ import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
+/**
+ * Validate + normalize a social handle. Guardrail, not anti-scam: keeps the right kind of link
+ * in the right field (a Telegram URL can't go in the X field) and turns a bare @handle into a
+ * canonical URL. Empty is always fine — the fields are optional.
+ * @returns { value } normalized, or { error } — never both.
+ */
+function normalizeSocial(kind: "x" | "telegram" | "website", raw: string): { value: string } | { error: string } {
+  const s = raw.trim();
+  if (!s) return { value: "" };
+  const handle = s.replace(/^@/, "");
+  if (kind === "x") {
+    if (/^@?[A-Za-z0-9_]{1,15}$/.test(s)) return { value: `https://x.com/${handle}` };
+    try {
+      const h = new URL(s).hostname.toLowerCase().replace(/^www\./, "");
+      if (h === "x.com" || h === "twitter.com") return { value: s };
+    } catch {
+      /* not a URL */
+    }
+    return { error: "X must be an x.com / twitter.com link or an @handle" };
+  }
+  if (kind === "telegram") {
+    if (/^@?[A-Za-z0-9_]{5,32}$/.test(s)) return { value: `https://t.me/${handle}` };
+    try {
+      if (new URL(s).hostname.toLowerCase().replace(/^www\./, "") === "t.me") return { value: s };
+    } catch {
+      /* not a URL */
+    }
+    return { error: "Telegram must be a t.me link or an @handle" };
+  }
+  // website
+  try {
+    const u = new URL(s.includes("://") ? s : `https://${s}`);
+    if (u.protocol === "https:") return { value: u.href };
+  } catch {
+    /* not a URL */
+  }
+  return { error: "Website must be a valid https:// URL" };
+}
+
 const LAUNCH_FEE = parseEther("0.0005");
 
 type Status = { kind: "idle" | "working" | "done" | "error"; msg?: string; hash?: string; token?: string };
@@ -95,6 +134,10 @@ export default function Launch({
       p.push("you cannot refer yourself; the factory rejects it");
     if (f.feeWallet && !/^0x[a-fA-F0-9]{40}$/.test(f.feeWallet)) p.push("fee recipient must be a 0x address");
     if (f.creatorBuy && !(Number(f.creatorBuy) >= 0)) p.push("opening buy must be a positive amount");
+    for (const [kind, val] of [["x", f.twitter], ["telegram", f.telegram], ["website", f.website]] as const) {
+      const r = normalizeSocial(kind, val);
+      if ("error" in r) p.push(r.error);
+    }
     return p;
   }, [f, wallet, githubId, githubBound]);
 
@@ -116,11 +159,12 @@ export default function Launch({
         symbol: f.symbol.trim().toUpperCase(),
         logo: f.logo.trim(),
         description: f.description.trim(),
+        // Normalize on the way out: @handle → canonical URL, validated above.
         socials: {
-          twitter: f.twitter.trim(),
-          telegram: f.telegram.trim(),
+          twitter: (normalizeSocial("x", f.twitter) as { value: string }).value,
+          telegram: (normalizeSocial("telegram", f.telegram) as { value: string }).value,
           discord: "",
-          website: f.website.trim(),
+          website: (normalizeSocial("website", f.website) as { value: string }).value,
           farcaster: "",
         },
         claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,

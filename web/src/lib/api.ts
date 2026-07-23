@@ -67,7 +67,7 @@ export interface ProtocolStatsResponse {
   allTime: { volumeWeth: number; trades: number };
   last24h: { volumeWeth: number; trades: number; traders: number; tokensTraded: number };
   tokensLaunched: number;
-  combined: { marketCapWeth: number; liquidityWeth: number };
+  combined: { marketCapWeth: number; liquidityWeth: number; burnedValueWeth: number };
   ethUsd: number | null;
 }
 

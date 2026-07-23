@@ -55,6 +55,11 @@ export default function Analytics() {
           value: inUsd(stats.combined.liquidityWeth),
           sub: "single-sided on Uniswap V3, forever",
         },
+        {
+          label: "Value burned",
+          value: inUsd(stats.combined.burnedValueWeth),
+          sub: "supply destroyed across all finchpad tokens",
+        },
       ]
     : [];
 

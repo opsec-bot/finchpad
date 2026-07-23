@@ -204,11 +204,14 @@ bars). They built a public dashboard reading burn txns live off Robinhood Chain,
       Swap accumulated protocol fees → buy FINCH → burn, on a keeper (~15 min like PONS).
       GATED: FINCH must be launched through finchpad first to have a market; keeper is downstream
       of fee collection. This is the mechanic — build it before the dashboard has anything to show.
-- [ ] **Live burn dashboard** — a natural fit for our EXISTING infra (SSE live updates +
-      Analytics page + indexer). Index `Transfer(to=0x…dead)`/burn events off the FINCH buyback
-      path, show cumulative burned, % of supply, real-time burn rate, and a live txn feed
-      updating via the SSE stream we already have. Frame it as the "live revenue meter" — burn
-      rate = trading volume proxy. Public, free, on-theme (transparency is finchpad's whole pitch).
+- [x] **Protocol burn metric — SHIPPED 2026-07-23**: "Value burned" tile on Analytics =
+      Σ (initial SUPPLY − current supply) × price across all tokens. Works today (tokens are
+      burnable now via the Burn action). This is the protocol-wide slice that doesn't need FINCH.
+- [ ] **FINCH-specific live burn monitor** — the full PONS-style "live revenue meter": index
+      the FINCH buyback-burn txns, show cumulative FINCH burned, % of FINCH supply, real-time
+      burn rate, and a live txn feed via the SSE stream we already have. GATED on the keeper +
+      FINCH being launched (nothing to show until then). Framing: burn rate = trading-volume
+      proxy; watch US hours wake up in the bars.
 
 ## Skills available in ~/.agents/skills (noted 2026-07-23 — I'd missed these)
 

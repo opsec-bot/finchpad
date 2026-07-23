@@ -312,22 +312,29 @@ async function route(url) {
       const rows = listTokens(db, { limit: 500 });
       let marketCapWeth = 0;
       let liquidityWeth = 0;
+      let burnedValueWeth = 0; // Σ (initial SUPPLY − current) × price — total value burned
       await Promise.all(
         rows.map(async (r) => {
           try {
-            const [slot0, wethBal, supply] = await Promise.all([
+            const [slot0, wethBal, supply, initial] = await Promise.all([
               publicClient.readContract({ address: r.pool, abi: poolAbi, functionName: "slot0" }),
               publicClient.readContract({ address: PONS.weth, abi: tokenAbi, functionName: "balanceOf", args: [r.pool] }),
               publicClient.readContract({ address: r.address, abi: tokenAbi, functionName: "totalSupply" }),
+              publicClient.readContract({ address: r.address, abi: tokenAbi, functionName: "SUPPLY" }).catch(() => null),
             ]);
-            marketCapWeth += priceFromSqrt(slot0[0], r.token_is_token0 === 1) * Number(formatEther(supply));
+            const price = priceFromSqrt(slot0[0], r.token_is_token0 === 1);
+            marketCapWeth += price * Number(formatEther(supply));
             liquidityWeth += Number(formatEther(wethBal));
+            if (initial !== null) {
+              const burned = Math.max(0, Number(formatEther(initial)) - Number(formatEther(supply)));
+              burnedValueWeth += burned * price;
+            }
           } catch {
             /* one unreadable token must not sink the whole aggregate */
           }
         }),
       );
-      return { marketCapWeth, liquidityWeth };
+      return { marketCapWeth, liquidityWeth, burnedValueWeth };
     });
     return { status: 200, body: { ...agg, combined, ethUsd: await getEthUsd() } };
   }
