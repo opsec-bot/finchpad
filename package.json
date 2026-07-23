@@ -11,6 +11,7 @@
     "dev:seed": "node scripts/dev-seed.mjs",
     "index:backfill": "node --env-file=.env src/indexer/backfill.js",
     "index:swaps": "node --env-file=.env src/indexer/swaps.js",
+    "index:daemon": "node --env-file=.env src/indexer/daemon.js",
     "verify:reference": "node --env-file=.env src/indexer/verifyReference.js",
     "web:install": "npm --prefix web ci",
     "web:dev": "npm --prefix web run dev",

@@ -3,6 +3,7 @@ node_modules/
 .env.local
 *.log
 data/*.json
+data/finchpad.db*
 !data/.gitkeep
 dist/
 out/

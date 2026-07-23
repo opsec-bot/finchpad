@@ -14,7 +14,7 @@
 //   --port N      API port (default 8787)
 
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { foundryBin, loadEnv, onSpawnError } from "./foundry.mjs";
@@ -191,6 +191,11 @@ async function main() {
         .map((kv) => kv.split("=")),
     );
     for (const [k, v] of Object.entries(deployment)) console.log(`      ${k.padEnd(13)} ${v}`);
+    // A fresh deployment means fresh addresses — anything the indexer stored about the
+    // previous fork's contracts is stale and would be served as live data. Start clean.
+    for (const suffix of ["", "-wal", "-shm"]) {
+      rmSync(join(ROOT, "data", `finchpad.db${suffix}`), { force: true });
+    }
   } else {
     step(2, "skipping seed (--no-seed)");
   }
@@ -244,6 +249,19 @@ async function main() {
   children.push(api);
   api.on("exit", (code) => {
     if (!shuttingDown) shutdown(code ?? 0);
+  });
+
+  // The indexer daemon tails launches/swaps/referrals into SQLite; the API serves all-time
+  // data from it (and falls back to live scans when the DB is empty). Non-fatal if it dies —
+  // the site still works, just window-bounded.
+  const indexer = spawn(
+    process.execPath,
+    ["--env-file=.env", join(ROOT, "src", "indexer", "daemon.js"), "--interval", "4000"],
+    { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...updates } },
+  );
+  children.push(indexer);
+  indexer.on("exit", (code) => {
+    if (!shuttingDown) console.error(`indexer daemon exited (${code}) — API falls back to live reads`);
   });
 
   console.log(`\n────────────────────────────────────────────────────────`);

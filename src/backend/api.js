@@ -10,11 +10,16 @@
 // Usage: node --env-file=.env src/backend/api.js [--port 8787] [--factory 0x...]
 
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { PONS } from "../lib/contracts.js";
-import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades } from "../lib/tokenData.js";
+import { formatEther } from "viem";
+import { PONS, poolAbi, tokenAbi } from "../lib/contracts.js";
+import { publicClient } from "../lib/chain.js";
+import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
+import { toCandles } from "../lib/ohlc.js";
+import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings } from "../indexer/db.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -41,6 +46,22 @@ const FACTORY = flag("factory", process.env.FINCH_FACTORY || PONS.activeFactory.
 // FeatureBoost address for paid featured placement. Unset until finchpad's contracts deploy,
 // in which case /featured simply returns an empty list rather than erroring.
 const FEATURE_BOOST = flag("feature-boost", process.env.FINCH_FEATURE_BOOST || null);
+
+// --- indexer database (optional) -------------------------------------------------------
+// The daemon (src/indexer/daemon.js) owns the write lock; this process reads the same file
+// read-only through WAL. When the file doesn't exist yet — daemon not running, first boot —
+// every handler falls back to the live block-window reads, so the API still works standalone.
+let _db = null;
+function getDb() {
+  if (_db) return _db;
+  if (!existsSync(DB_PATH)) return null;
+  try {
+    _db = openDb({ readonly: true });
+  } catch {
+    return null;
+  }
+  return _db;
+}
 
 // --- tiny TTL cache -------------------------------------------------------------------
 const cache = new Map();
@@ -195,12 +216,89 @@ async function route(url) {
     }
   }
 
+  // GET /stats — protocol-wide analytics. All-time sums come from the indexer DB; the
+  // combined market-cap/liquidity figures are live reads over every indexed token, cached
+  // hard because they cost 3 RPC calls per token.
+  if (parts[0] === "stats") {
+    const db = getDb();
+    if (!db) return { status: 503, body: { error: "indexer not running — stats need the daemon" } };
+    const agg = getStats(db);
+    const combined = await cached("stats:combined", 120_000, async () => {
+      const rows = listTokens(db, { limit: 500 });
+      let marketCapWeth = 0;
+      let liquidityWeth = 0;
+      await Promise.all(
+        rows.map(async (r) => {
+          try {
+            const [slot0, wethBal, supply] = await Promise.all([
+              publicClient.readContract({ address: r.pool, abi: poolAbi, functionName: "slot0" }),
+              publicClient.readContract({ address: PONS.weth, abi: tokenAbi, functionName: "balanceOf", args: [r.pool] }),
+              publicClient.readContract({ address: r.address, abi: tokenAbi, functionName: "totalSupply" }),
+            ]);
+            marketCapWeth += priceFromSqrt(slot0[0], r.token_is_token0 === 1) * Number(formatEther(supply));
+            liquidityWeth += Number(formatEther(wethBal));
+          } catch {
+            /* one unreadable token must not sink the whole aggregate */
+          }
+        }),
+      );
+      return { marketCapWeth, liquidityWeth };
+    });
+    return { status: 200, body: { ...agg, combined, ethUsd: await getEthUsd() } };
+  }
+
+  // GET /referrals/:address — a referrer's on-chain earnings, for the referrals menu.
+  if (parts[0] === "referrals") {
+    const who = parts[1];
+    if (!isAddress(who)) return { status: 400, body: { error: "invalid referrer address" } };
+    const db = getDb();
+    if (!db) return { status: 503, body: { error: "indexer not running — referrals need the daemon" } };
+    const r = getReferralEarnings(db, who);
+    return {
+      status: 200,
+      body: {
+        referrer: who.toLowerCase(),
+        totalWeth: r.total.weth,
+        last7dWeth: r.total.weth_7d,
+        tokens: r.perToken.map((t) => ({
+          token: t.token,
+          symbol: getTokenRow(db, t.token)?.symbol ?? "?",
+          earnedWeth: t.weth,
+          payouts: Number(t.payouts),
+          lastTs: Number(t.last_ts),
+        })),
+        ethUsd: await getEthUsd(),
+      },
+    };
+  }
+
   if (parts[0] !== "tokens") return { status: 404, body: { error: "not found" } };
 
-  // GET /tokens
+  // GET /tokens — all-time list from the indexer when available, live block-window otherwise.
   if (parts.length === 1) {
-    const blocks = boundedBlocks(q.get("blocks"));
     const limit = boundedInt(q.get("limit"), 50, MAX_LIMIT);
+    const db = getDb();
+    if (db) {
+      const rows = listTokens(db, { limit });
+      if (rows.length > 0) {
+        return {
+          status: 200,
+          body: {
+            factory: FACTORY,
+            count: rows.length,
+            tokens: rows.map((r) => ({
+              token: r.address,
+              deployer: r.deployer,
+              pool: r.pool,
+              block: Number(r.launch_block),
+              txHash: r.launch_tx,
+              initialBuyEth: r.initial_buy_eth,
+            })),
+          },
+        };
+      }
+    }
+    const blocks = boundedBlocks(q.get("blocks"));
     const tokens = await cached(`tokens:${blocks}:${limit}`, 15_000, () =>
       getRecentTokens({ factoryAddress: FACTORY, blocks, limit })
     );
@@ -214,6 +312,42 @@ async function route(url) {
   if (parts.length === 2) {
     const detail = await cached(`detail:${token}`, 10_000, () => getTokenDetail(token, FACTORY));
     return { status: 200, body: detail };
+  }
+
+  // Candles + trades come straight from the indexer when it knows the token — all-time
+  // history, no RPC scan. The live path below remains for unindexed/foreign tokens.
+  const dbRow = getDb() ? getTokenRow(getDb(), token) : null;
+
+  if (parts[2] === "candles" && dbRow) {
+    const interval = boundedInt(q.get("interval"), 300, MAX_INTERVAL);
+    const rows = listTrades(getDb(), token, { limit: 100_000 }).reverse(); // chronological
+    const candles = toCandles(
+      rows.map((r) => ({ timestamp: r.ts, priceWeth: r.price_weth, tokenAmount: r.token_amount, wethAmount: r.weth_amount })),
+      interval,
+    );
+    return { status: 200, body: { token, symbol: dbRow.symbol, interval, trades: rows.length, candles } };
+  }
+
+  if (parts[2] === "trades" && dbRow) {
+    const limit = boundedInt(q.get("limit"), 100, MAX_LIMIT);
+    const rows = listTrades(getDb(), token, { limit });
+    return {
+      status: 200,
+      body: {
+        token,
+        symbol: dbRow.symbol,
+        count: rows.length,
+        trades: rows.map((r) => ({
+          side: r.side,
+          tokenAmount: r.token_amount,
+          wethAmount: r.weth_amount,
+          timestamp: Number(r.ts),
+          block: Number(r.block_number),
+          txHash: r.tx_hash,
+          priceWeth: r.price_weth,
+        })),
+      },
+    };
   }
 
   // Sub-resources need pool + ordering, which come from the detail read.
@@ -333,7 +467,13 @@ export const server = createServer(async (req, res) => {
 
     if (await serveAsset(req, url.pathname, res)) return;
 
-    if (url.pathname === "/" || url.pathname === "/index.html") {
+    // SPA fallback: the frontend owns real URLs (token pages, launch, analytics, terms,
+    // future profiles), so those paths serve the app shell and the client router takes over.
+    // /tokens/robinhood/* is a PAGE path — the API's own data routes are /tokens/0x…
+    const isSpaPath =
+      /^\/(launch|analytics|terms|profile(\/[\w.-]+)?|tokens\/robinhood\/0x[a-fA-F0-9]{40})$/.test(url.pathname);
+
+    if (url.pathname === "/" || url.pathname === "/index.html" || isSpaPath) {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
       if (html) {
         res.writeHead(200, {
