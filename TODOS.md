@@ -115,9 +115,24 @@ mascot/hero/placeholder assets were removed.
       open/closed), swaps table. Needs wallet identity + the R2 persistence layer (per-user
       holdings/positions), so it's the most blocked. Portfolio value in the top bar is deferred
       for the same reason (top bar shows spendable ETH as cash for now, no holdings valuation).
-- [ ] **Deposit on chain 4663.** `useFundWallet` opens Privy's funding modal but Privy's
-      on-ramp providers may not support Robinhood Chain; the button catches and toasts if so.
-      Revisit once we know what funding path works (bridge vs direct).
+- [ ] **Deposit / funding on chain 4663 — the biggest unbuilt onboarding step (elevated
+      2026-07-23, research deferred by user).** Chain economics, settled: Robinhood Chain is
+      an Arbitrum Orbit L2 whose NATIVE gas currency is ETH — no separate gas token. Gas,
+      trading, launch fees, fee splits, escrow, graduation thresholds, boost/feature prices
+      are ALL ETH/WETH. Users don't "swap to Robinhood Chain" — they **bridge ETH from L1**
+      and it arrives as native ETH. finchpad currently gives a real user zero guidance for
+      that middle step, and for an embedded-wallet keep-volume-in-app product, funding is the
+      make-or-break onboarding moment.
+      Research list (in rough order of payoff):
+      1. What Privy's `useFundWallet` modal ACTUALLY offers on 4663 — card on-ramps probably
+         unsupported, but transfer-from-external-wallet may already work.
+      2. The recommended bridge route: Robinhood Chain's canonical Orbit bridge (URL, UX,
+         time-to-arrive), and — potentially the killer path — whether the **Robinhood app
+         itself can withdraw ETH directly to a chain address**, which would let their retail
+         users fund finchpad from their brokerage in one step.
+      3. Third-party fast bridges / on-ramp partners supporting 4663, if any.
+      Then design the Deposit flow around the findings: at minimum a "How to fund" panel with
+      the bridge link; at best an embedded bridge/on-ramp in the Deposit modal.
 - [x] **First-visit disclaimer gate — SHIPPED 2026-07-23** (`DisclaimerGate.tsx`): "Before you
       continue" overlay — unaudited/third-party-tokens/at-your-own-risk copy, checkbox with a
       hyperlink to `/terms`, Continue disabled until checked. Not dismissible any other way;
@@ -134,6 +149,33 @@ mascot/hero/placeholder assets were removed.
       `/launch`, `/analytics`, `/terms`; API serves the app shell for these paths (SPA
       fallback) so deep links and refreshes work. `?ref=` survives navigation.
 
+## Send / Withdraw + platform transaction ledger (added 2026-07-23, user request)
+
+- [ ] **Send function.** Two destinations from one surface (likely a modal off the top bar or
+      account menu):
+      1. **Send to a platform user by USERNAME** — resolve handle → wallet address via the
+         existing `/users/:username` (usernames are unique + strictly validated, so this is
+         safe to build on). Show the resolved name+avatar before confirming so fat-fingering
+         a handle is visible. ETH first; per-token sends later maybe.
+      2. **Withdraw to any external ETH address** — plain transfer to a pasted 0x address
+         (checksum-validate, confirm screen).
+      Both go through the embedded wallet → one-click + MFA-for-transactions apply
+      automatically. Amount entry should reuse the USD⇄ETH toggle pattern from TradePanel.
+- [ ] **Platform transaction ledger — a user-visible history of everything they did ON
+      finchpad**: buys, sells, launches, burns, collects, claims, boosts/features, referral
+      payouts, sends/withdrawals. Scope call (user): only platform activity — anything else
+      (external transfers in, etc.) they can use the Robinhood Chain explorer for; link out
+      to Blockscout per-address for the full picture.
+      Data: most of it is ALREADY indexed (swaps by trader, referral payouts by referrer;
+      launches by deployer). Missing pieces: sends/withdrawals (record at send time in a
+      `transfers` table — they're initiated by us so no chain scan needed; note: a DB-recorded
+      send that fails on-chain must be reconciled, or record only after receipt), burns /
+      collects / claims / boost purchases by tx sender (either record client-side at receipt
+      like sends, or scan the relevant events by actor in the daemon — event-scan is the
+      honest source).
+      Surface: a "History" / "Activity" tab — natural home is the profile page (own view) or
+      the account menu. Each row: type, token, amounts, time, tx link to Blockscout.
+
 ## Token display — show liquidity (added 2026-07-22)
 
 - [ ] **Show pool liquidity.** Surface each token's Uniswap V3 pool liquidity/depth on the token
@@ -144,6 +186,26 @@ mascot/hero/placeholder assets were removed.
       WETH/USD value locked in the pool (simplest, intuitive) vs raw V3 `liquidity`. Note finch
       liquidity is **permanently locked** (that's a selling point) — label it so, and it pairs
       well with the existing graduation/locked-liquidity trust framing.
+
+## Token page polish (2026-07-23)
+
+- [x] **Total fees on the token page — SHIPPED**: GraduationCard now shows **Total fees
+      earned** (lifetime banked + uncollected pending), **Fees distributed** (banked minus
+      escrow), and **Held in escrow** when a GitHub binding is unclaimed.
+- [x] **Graduation updates live — FIXED**: two causes — the server cached token detail for
+      10s (now 3s), and swaps only move the PENDING slice. Buys now tick
+      `claimableFeesEth` client-side in real time (+1% of the WETH in — the pool fee lands on
+      the input side, so sell fees accrue token-side and don't tick), with the debounced
+      authoritative reload reconciling behind it.
+- [x] **Profile "Set up" flash on fresh tabs — FIXED**: the auto-prompt fired off a single
+      transient null during wallet init. Now it (1) confirms with a second fetch 800ms later
+      before ever opening, (2) self-closes if a profile materialises while an auto-opened
+      modal is up, and (3) `/users/by-address` is `cache-control: no-store` so a cached
+      "no profile" can never outlive profile creation. Root cause of the transient null not
+      pinned (suspect Privy wallet init ordering) — the triple guard makes it moot.
+- [x] **Feature vs Boost copy clarified** (user asked the difference): Feature = temporary
+      paid placement in Explore's Featured rail, per-day, expires, stacking extends. Boost =
+      permanent one-time ⚡ cosmetic badge, no placement change. Card copy now states both.
 
 ## Trading UX — one-click buy/sell without signing every trade (added 2026-07-22)
 
@@ -372,8 +434,21 @@ it cost real debugging time twice in one day.
       a creator gets a fair entry into their own token.
 - [ ] Re-run the Phase 5 pass over the modified token/factory before mainnet — the transfer
       hook was on the money path.
-  - [ ] Submit `claimGithub()` from the signature the OAuth flow already returns
-  - [ ] Lock / burn / redirect / CTO-request / feature+boost purchase
+  - [x] Submit `claimGithub()` — SHIPPED (token-page ClaimFees + account-menu ClaimCenter)
+  - [x] Burn — SHIPPED (TokenActions); **Boost purchase — SHIPPED 2026-07-23, REDESIGNED same
+        day (user call): ONE product, time-based stacking boosts.** v1 briefly sold day-based
+        "featuring" + a permanent badge; both collapsed into a single hour-based Boost BEFORE
+        any deployment. `FeatureBoost.sol` rewritten (name/envs kept to avoid tooling churn):
+        `boost(token, numHours)` payable at `pricePerHour` (default 0.001 ether/h), stacks —
+        active window extends, lapsed restarts from now — `boostedUntil` mapping,
+        `Boosted(token,payer,until,paid)` event, 720h cap, 11 tests incl. stacking/expiry
+        semantics; Deploy env is now `FINCH_BOOST_PRICE_PER_HOUR` (old FINCH_FEATURE_PRICE /
+        FINCH_BOOST_PRICE gone). UI: PromoteCard sells 6h/12h/24h with active-until shown;
+        boosted tokens get the ⚡ badge, a **highlighted card** (tinted surface, bright border,
+        glow) and the **top "Boosted" rail** on Explore while STAYING in the organic feed
+        (placement adds, never reorders — user's explicit call). Paid-placement labeling kept
+        everywhere: paid ≠ vetted.
+  - [ ] Lock / redirect fee wallet / CTO-request — the remaining write flows
   - [ ] No blind-signing anywhere: show exactly what is being signed
   - Build against the local anvil fork — `npm run dev:fork` + `npm run dev:seed` already
     stand up a real chain seeded with 4 tokens (plain, referred, repo-bound, user-bound)
