@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrivy, useLinkAccount, useMfaEnrollment } from "@privy-io/react-auth";
 import { Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ReferralsModal } from "@/components/ReferralsModal";
+import { ProfileSetup } from "@/components/ProfileSetup";
 import { useActiveWallet } from "@/components/Wallet";
+import { api } from "@/lib/api";
+import type { Profile } from "@/lib/api";
+import { navigateTo } from "@/lib/nav";
 import { useBlurBalances } from "@/lib/blurBalances";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -26,7 +30,46 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [referralsOpen, setReferralsOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  // undefined = not fetched yet (wallet still initializing / request in flight); null = the
+  // server said there is no profile. The distinction matters: acting on "undefined" as if it
+  // were "no profile" made "Your profile" open the setup modal during the load race.
+  const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Load the profile for this wallet; first signup (no profile yet) auto-opens the username
+  // prompt once per session — skippable, and always reachable later via "Your profile".
+  useEffect(() => {
+    if (!wallet) return setProfile(undefined);
+    let alive = true;
+    api.profileByAddress(wallet.address).then(({ profile: p }) => {
+      if (!alive) return;
+      setProfile(p ?? null);
+      if (!p && !sessionStorage.getItem("finchpad:profile-prompted")) {
+        sessionStorage.setItem("finchpad:profile-prompted", "1");
+        setSetupOpen(true);
+      }
+    }).catch(() => {
+      /* leave undefined — the click handler re-fetches rather than assuming no profile */
+    });
+    return () => {
+      alive = false;
+    };
+  }, [wallet?.address]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Your profile" resolves the truth at click time — never trusts possibly-stale state.
+  async function openProfile() {
+    if (profile) return navigateTo(`/profile/${profile.username}`);
+    if (!wallet) return;
+    try {
+      const { profile: p } = await api.profileByAddress(wallet.address);
+      setProfile(p ?? null);
+      if (p) return navigateTo(`/profile/${p.username}`);
+    } catch {
+      /* fall through to setup — the modal's availability check will surface API trouble */
+    }
+    setSetupOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -54,6 +97,7 @@ export function AccountMenu() {
         aria-label="Account menu"
       >
         <Avatar className="size-8">
+          {profile?.avatar && <AvatarImage src={profile.avatar} alt="" className="object-cover" />}
           <AvatarFallback className="bg-secondary text-xs font-semibold text-secondary-foreground">{initials}</AvatarFallback>
         </Avatar>
       </button>
@@ -63,7 +107,14 @@ export function AccountMenu() {
           className="absolute right-0 top-[calc(100%+8px)] z-50 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl"
           role="menu"
         >
-          <MenuItem icon={User} label="Your profile" onClick={() => (setOpen(false), toast("Profiles are coming soon."))} />
+          <MenuItem
+            icon={User}
+            label="Your profile"
+            onClick={() => {
+              setOpen(false);
+              void openProfile();
+            }}
+          />
           <MenuItem icon={Settings} label="Manage account" onClick={() => (setOpen(false), setManageOpen(true))} />
           <button
             role="menuitemcheckbox"
@@ -151,7 +202,16 @@ export function AccountMenu() {
         </div>
       </Modal>
 
-      <ReferralsModal open={referralsOpen} onClose={() => setReferralsOpen(false)} />
+      <ReferralsModal open={referralsOpen} onClose={() => setReferralsOpen(false)} username={profile?.username} />
+      <ProfileSetup
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        existing={profile ?? null}
+        onSaved={({ username }) => {
+          if (wallet) api.profileByAddress(wallet.address).then(({ profile: p }) => setProfile(p)).catch(() => {});
+          navigateTo(`/profile/${username}`);
+        }}
+      />
     </div>
   );
 }

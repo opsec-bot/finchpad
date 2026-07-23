@@ -16,7 +16,16 @@ const TARGET_BYTES = 24 * 1024; // keep the encoded result modest
  * endpoint). Until that exists this produces a data URI, which is self-contained and cannot
  * rot, but costs real gas at launch — so it is capped hard and the cost is stated plainly.
  */
-export default function LogoPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export default function LogoPicker({
+  value,
+  onChange,
+  hint,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  /** Overrides the storage-cost caption — profile pictures live in the DB, not on-chain. */
+  hint?: string;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,7 +100,7 @@ export default function LogoPicker({ value, onChange }: { value: string; onChang
           )}
           <p className="mt-1.5 text-xs text-muted-foreground">
             {value
-              ? `cropped square, 128px, ~${approxKb} KB stored on-chain with the token`
+              ? (hint ?? `cropped square, 128px, ~${approxKb} KB stored on-chain with the token`)
               : "png, jpeg, webp or gif. Cropped square and downscaled in your browser."}
           </p>
         </div>

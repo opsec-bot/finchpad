@@ -73,9 +73,53 @@ export interface ReferralsResponse {
   ethUsd: number | null;
 }
 
+export interface Profile {
+  address: string;
+  username: string;
+  name: string;
+  bio: string;
+  avatar: string;
+  joinedTs: number;
+}
+
+export interface Position {
+  token: string;
+  symbol: string;
+  investedWeth: number;
+  receivedWeth: number;
+  netTokens: number;
+  valueWeth: number;
+  pnlWeth: number;
+  trades: number;
+  lastTs: number;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await r.json().catch(() => ({}))) as T & { error?: string };
+  if (!r.ok) throw new Error(json.error || `${r.status} ${r.statusText}`);
+  return json;
+}
+
 export const api = {
   stats: () => get<ProtocolStatsResponse>("/stats"),
   referrals: (address: string) => get<ReferralsResponse>(`/referrals/${address}`),
+  profileByAddress: (address: string) => get<{ profile: Profile | null }>(`/users/by-address/${address}`),
+  profile: (username: string) => get<Profile & { positions: Position[]; ethUsd: number | null }>(`/users/${username}`),
+  usernameCheck: (u: string, address?: string) =>
+    get<{ available: boolean; reason?: string }>(
+      `/users/check?u=${encodeURIComponent(u)}${address ? `&address=${address}` : ""}`,
+    ),
+  saveProfile: (body: {
+    address: string;
+    payload: { username: string; name: string; bio: string; avatar: string };
+    timestamp: number;
+    signature: string;
+  }) => post<{ ok: boolean }>("/users", body),
   health: () => get<{ ok: boolean; factory: string; featureBoost: string | null; ethUsd: number | null }>("/health"),
   tokens: (blocks = 3000, limit = 25) =>
     get<{ factory: string; count: number; tokens: TokenSummary[] }>(`/tokens?blocks=${blocks}&limit=${limit}`),

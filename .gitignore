@@ -4,6 +4,7 @@ node_modules/
 *.log
 data/*.json
 data/finchpad.db*
+data/users.db*
 !data/.gitkeep
 dist/
 out/

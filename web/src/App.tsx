@@ -11,7 +11,9 @@ import Launch from "@/routes/Launch";
 import Token from "@/routes/Token";
 import Analytics from "@/routes/Analytics";
 import Terms from "@/routes/Terms";
+import Profile from "@/routes/Profile";
 import { api } from "@/lib/api";
+import { onNavigate } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,11 +30,17 @@ type Route =
   | { page: "token"; address: string }
   | { page: "launch" }
   | { page: "analytics" }
-  | { page: "terms" };
+  | { page: "terms" }
+  | { page: "profile"; username: string }
+  | { page: "ref"; username: string };
 
 function parsePath(pathname: string): Route {
   const token = pathname.match(/^\/tokens\/robinhood\/(0x[a-fA-F0-9]{40})$/);
   if (token) return { page: "token", address: token[1] };
+  const profile = pathname.match(/^\/profile\/([a-z0-9_]{1,20})$/);
+  if (profile) return { page: "profile", username: profile[1] };
+  const ref = pathname.match(/^\/r\/([a-z0-9_]{1,20})$/);
+  if (ref) return { page: "ref", username: ref[1] };
   if (pathname === "/launch") return { page: "launch" };
   if (pathname === "/analytics") return { page: "analytics" };
   if (pathname === "/terms") return { page: "terms" };
@@ -43,6 +51,10 @@ function pathFor(route: Route): string {
   switch (route.page) {
     case "token":
       return `/tokens/robinhood/${route.address}`;
+    case "profile":
+      return `/profile/${route.username}`;
+    case "ref":
+      return `/r/${route.username}`;
     case "launch":
       return "/launch";
     case "analytics":
@@ -52,6 +64,23 @@ function pathFor(route: Route): string {
     default:
       return "/";
   }
+}
+
+/** /r/<username> — resolve the handle to its wallet and land on Launch with the referrer bound. */
+function RefRedirect({ username }: { username: string }) {
+  useEffect(() => {
+    api
+      .profile(username)
+      .then((p) => {
+        window.history.replaceState(null, "", `/launch?ref=${p.address}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      })
+      .catch(() => {
+        window.history.replaceState(null, "", "/");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+  }, [username]);
+  return <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">loading…</div>;
 }
 
 export default function App() {
@@ -69,7 +98,16 @@ export default function App() {
   useEffect(() => {
     const onPop = () => setRoute(parsePath(window.location.pathname));
     window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
+    // Components outside the router (menus, tables) navigate via the nav bridge.
+    const offNav = onNavigate((path) => {
+      window.history.pushState(null, "", path + window.location.search);
+      setRoute(parsePath(path));
+      window.scrollTo(0, 0);
+    });
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      offNav();
+    };
   }, []);
 
   useEffect(() => {
@@ -133,6 +171,10 @@ export default function App() {
           <Analytics />
         ) : route.page === "terms" ? (
           <Terms />
+        ) : route.page === "profile" ? (
+          <Profile username={route.username} />
+        ) : route.page === "ref" ? (
+          <RefRedirect username={route.username} />
         ) : route.page === "token" ? (
           <Token address={route.address} onBack={goExplore} />
         ) : route.page === "launch" ? (

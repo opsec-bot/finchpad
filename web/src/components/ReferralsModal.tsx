@@ -20,7 +20,16 @@ import { Balance } from "@/lib/blurBalances";
  * The link carries the wallet address (?ref=0x…) because referrals are address-bound on-chain
  * (LaunchParams.referrer). It swaps to /r/<handle> once usernames exist.
  */
-export function ReferralsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ReferralsModal({
+  open,
+  onClose,
+  username,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** When the user has a claimed handle the link is the friendly /r/<username> form. */
+  username?: string;
+}) {
   const wallet = useActiveWallet();
   const [data, setData] = useState<ReferralsResponse | null>(null);
   const [shareBps, setShareBps] = useState<number | null>(null);
@@ -44,7 +53,11 @@ export function ReferralsModal({ open, onClose }: { open: boolean; onClose: () =
     };
   }, [open, wallet]);
 
-  const link = wallet ? `${window.location.origin}/?ref=${wallet.address}` : "";
+  const link = username
+    ? `${window.location.origin}/r/${username}`
+    : wallet
+      ? `${window.location.origin}/?ref=${wallet.address}`
+      : "";
   const eth = data?.ethUsd ?? null;
   const inUsd = (weth: number) => (eth ? usdExact(weth * eth) : `${weth.toFixed(4)} Ξ`);
 

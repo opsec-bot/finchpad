@@ -24,6 +24,8 @@ export default defineConfig({
       "/github": "http://localhost:8787",
       "/stats": "http://localhost:8787",
       "/referrals": "http://localhost:8787",
+      "/users": "http://localhost:8787",
+      "/events": "http://localhost:8787",
     },
   },
 });

@@ -184,6 +184,40 @@ export function getStats(db) {
   };
 }
 
+/** A trader's per-token position, derived from their indexed swaps — powers profile pages.
+ *  Approximate by design: transfers outside the pool aren't visible here, so net tokens is
+ *  the traded position, not necessarily the wallet balance. */
+export function getTraderPositions(db, trader) {
+  const rows = db.prepare(
+    `SELECT s.token, COALESCE(t.symbol, '?') AS symbol,
+            SUM(CASE WHEN s.side='buy'  THEN s.weth_amount  ELSE 0 END) AS buy_weth,
+            SUM(CASE WHEN s.side='sell' THEN s.weth_amount  ELSE 0 END) AS sell_weth,
+            SUM(CASE WHEN s.side='buy'  THEN s.token_amount ELSE -s.token_amount END) AS net_tokens,
+            COUNT(*) AS trades, MAX(s.ts) AS last_ts
+     FROM swaps s LEFT JOIN tokens t ON t.address = s.token
+     WHERE s.trader = ?
+     GROUP BY s.token
+     ORDER BY MAX(s.ts) DESC`
+  ).all(trader.toLowerCase());
+  const lastPrice = db.prepare("SELECT price_weth FROM swaps WHERE token = ? ORDER BY ts DESC, block_number DESC LIMIT 1");
+  return rows.map((r) => {
+    const price = lastPrice.get(r.token)?.price_weth ?? 0;
+    const net = Math.max(0, r.net_tokens); // dust negatives from float math read as 0
+    const valueWeth = net * price;
+    return {
+      token: r.token,
+      symbol: r.symbol,
+      investedWeth: r.buy_weth,
+      receivedWeth: r.sell_weth,
+      netTokens: net,
+      valueWeth,
+      pnlWeth: r.sell_weth + valueWeth - r.buy_weth,
+      trades: Number(r.trades),
+      lastTs: Number(r.last_ts),
+    };
+  });
+}
+
 /** A referrer's earnings, total and per token — the referrals modal reads this. */
 export function getReferralEarnings(db, referrer) {
   const rows = db.prepare(
