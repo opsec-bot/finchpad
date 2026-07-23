@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import type { ProtocolStatsResponse } from "@/lib/api";
+import { onLive, debounced } from "@/lib/live";
 import { usd } from "@/lib/money";
 
 /**
@@ -22,9 +23,14 @@ export default function Analytics() {
         .catch((e) => alive && setErr((e as Error).message));
     void load();
     const t = setInterval(load, 30_000);
+    // Live swaps nudge the numbers between the 30s ticks (debounced).
+    const refresh = debounced(() => void load(), 2000);
+    const off = onLive("swap", () => refresh.call());
     return () => {
       alive = false;
       clearInterval(t);
+      refresh.cancel();
+      off();
     };
   }, []);
 

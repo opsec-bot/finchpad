@@ -19,7 +19,8 @@ import { PONS, poolAbi, tokenAbi } from "../lib/contracts.js";
 import { publicClient } from "../lib/chain.js";
 import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
 import { toCandles } from "../lib/ohlc.js";
-import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings } from "../indexer/db.js";
+import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions } from "../indexer/db.js";
+import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable } from "./users.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -62,6 +63,84 @@ function getDb() {
   }
   return _db;
 }
+
+// --- live updates (SSE) ----------------------------------------------------------------
+// Server-Sent Events, deliberately not WebSockets: the flow is one-directional, EventSource
+// auto-reconnects, and it runs on this zero-dependency http server. The daemon owns the DB
+// writes, so the API learns about new rows by watching the indexer cursor — a sub-millisecond
+// SQLite read every couple of seconds — and diffing forward from the last block it announced.
+const sseClients = new Set();
+const SSE_MAX_CLIENTS = 200;
+
+function handleSse(req, res) {
+  if (sseClients.size >= SSE_MAX_CLIENTS) {
+    res.writeHead(503, { "content-type": "application/json" });
+    return res.end('{"error":"too many live connections"}');
+  }
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "x-accel-buffering": "no", // tells buffering proxies to pass events through
+  });
+  res.write(":connected\n\n");
+  sseClients.add(res);
+  req.on("close", () => sseClients.delete(res));
+}
+
+function broadcast(event, data) {
+  if (sseClients.size === 0) return;
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) client.write(msg);
+}
+
+let sseLastBlock = null;
+function pumpLiveEvents() {
+  const db = getDb();
+  if (!db) return;
+  const cursor = db.prepare("SELECT last_block FROM indexer_state WHERE name = 'main'").get();
+  if (!cursor) return;
+  const head = Number(cursor.last_block);
+  if (sseLastBlock === null) {
+    sseLastBlock = head; // first sight: announce nothing retroactively
+    return;
+  }
+  if (head <= sseLastBlock) return;
+
+  const launches = db.prepare(
+    "SELECT address, symbol, name, pool, launch_block FROM tokens WHERE launch_block > ? ORDER BY launch_block"
+  ).all(sseLastBlock);
+  for (const l of launches) {
+    broadcast("launch", { token: l.address, symbol: l.symbol, name: l.name, block: Number(l.launch_block) });
+  }
+
+  const swaps = db.prepare(
+    `SELECT s.token, COALESCE(t.symbol,'?') AS symbol, s.side, s.token_amount, s.weth_amount,
+            s.price_weth, s.ts, s.block_number, s.tx_hash, s.trader
+     FROM swaps s LEFT JOIN tokens t ON t.address = s.token
+     WHERE s.block_number > ? ORDER BY s.block_number, s.log_index`
+  ).all(sseLastBlock);
+  for (const s of swaps) {
+    broadcast("swap", {
+      token: s.token,
+      symbol: s.symbol,
+      side: s.side,
+      tokenAmount: s.token_amount,
+      wethAmount: s.weth_amount,
+      priceWeth: s.price_weth,
+      timestamp: Number(s.ts),
+      block: Number(s.block_number),
+      txHash: s.tx_hash,
+      // trader = tx.from, so "my wallet just traded" is detectable client-side (live cash/PnL).
+      trader: s.trader,
+    });
+  }
+
+  sseLastBlock = head;
+}
+// unref: imported-for-tests servers must not be kept alive by the timers.
+setInterval(pumpLiveEvents, 1000).unref();
+setInterval(() => broadcast("ping", { t: Date.now() }), 25_000).unref();
 
 // --- tiny TTL cache -------------------------------------------------------------------
 const cache = new Map();
@@ -245,6 +324,29 @@ async function route(url) {
       return { marketCapWeth, liquidityWeth };
     });
     return { status: 200, body: { ...agg, combined, ethUsd: await getEthUsd() } };
+  }
+
+  // --- profiles ------------------------------------------------------------------------
+  // JSON lives under /users/* — /profile/<username> is a PAGE path (SPA fallback serves the
+  // app shell there), so the data API needs its own prefix.
+  // GET /users/by-address/:address — profile lookup for the signed-in user.
+  if (parts[0] === "users" && parts[1] === "by-address") {
+    if (!isAddress(parts[2])) return { status: 400, body: { error: "invalid address" } };
+    return { status: 200, body: { profile: getUserByAddress(parts[2]) } };
+  }
+
+  // GET /users/check?u=<username>&address=0x… — live availability for the setup form.
+  if (parts[0] === "users" && parts[1] === "check") {
+    return { status: 200, body: usernameAvailable(q.get("u") ?? "", q.get("address")) };
+  }
+
+  // GET /users/:username — public profile + traded positions from the indexer.
+  if (parts[0] === "users" && parts.length === 2) {
+    const user = getUserByUsername(parts[1]);
+    if (!user) return { status: 404, body: { error: "no such user" } };
+    const db = getDb();
+    const positions = db ? getTraderPositions(db, user.address) : [];
+    return { status: 200, body: { ...user, positions, ethUsd: await getEthUsd() } };
   }
 
   // GET /referrals/:address — a referrer's on-chain earnings, for the referrals menu.
@@ -450,10 +552,46 @@ async function serveAsset(req, pathname, res) {
   return true;
 }
 
+/** Read a JSON request body with a hard size cap — profile avatars are ≤64KB data URIs. */
+function readJsonBody(req, maxBytes = 200 * 1024) {
+  return new Promise((resolvePromise, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > maxBytes) {
+        req.destroy();
+        return reject(new Error("body too large"));
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      try {
+        resolvePromise(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new Error("invalid JSON"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 export const server = createServer(async (req, res) => {
-  if (req.method !== "GET" && req.method !== "HEAD") return send(req, res, 405, { error: "GET or HEAD only" });
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    // The only write endpoint. Authorization is the wallet signature INSIDE the body
+    // (users.js verifies it), so no session or cookie state exists to steal.
+    if (req.method === "POST" && url.pathname === "/users") {
+      const body = await readJsonBody(req).catch((e) => ({ __err: e.message }));
+      if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
+      const result = await applyProfileUpdate(body);
+      return send(req, res, result.ok ? 200 : 400, result, { "cache-control": "no-store" });
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") return send(req, res, 405, { error: "GET or HEAD only" });
+
+    // Live event stream — long-lived response, handled outside the JSON route table.
+    if (req.method === "GET" && url.pathname === "/events") return handleSse(req, res);
 
     // OAuth responses carry claim signatures — never cacheable.
     const authed = await githubAuth.handle(url);
@@ -471,7 +609,7 @@ export const server = createServer(async (req, res) => {
     // future profiles), so those paths serve the app shell and the client router takes over.
     // /tokens/robinhood/* is a PAGE path — the API's own data routes are /tokens/0x…
     const isSpaPath =
-      /^\/(launch|analytics|terms|profile(\/[\w.-]+)?|tokens\/robinhood\/0x[a-fA-F0-9]{40})$/.test(url.pathname);
+      /^\/(launch|analytics|terms|profile(\/[\w.-]+)?|r\/[a-z0-9_]+|tokens\/robinhood\/0x[a-fA-F0-9]{40})$/.test(url.pathname);
 
     if (url.pathname === "/" || url.pathname === "/index.html" || isSpaPath) {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);

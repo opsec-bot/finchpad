@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Rocket, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import TokenCardSkeleton from "@/components/TokenCardSkeleton";
 import { api } from "@/lib/api";
 import { buildTokenView } from "@/lib/tokenView";
 import type { TokenView } from "@/lib/tokenView";
+import { onLive, debounced } from "@/lib/live";
 
 type Sort = "trending" | "mcap" | "new" | "oldest" | "graduating";
 
@@ -32,39 +33,56 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
   const [sort, setSort] = useState<Sort>("trending");
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { tokens } = await api.tokens();
-        if (!alive) return;
-        setCount(tokens.length);
-        if (tokens.length === 0) {
-          setViews([]);
-          return;
-        }
-        const results = await Promise.allSettled(
-          tokens.map(async (summary) => {
-            const [detail, candles] = await Promise.all([
-              api.token(summary.token),
-              api.candles(summary.token).catch(() => ({ candles: [] })),
-            ]);
-            return buildTokenView(summary, detail, candles.candles);
-          }),
-        );
-        if (!alive) return;
-        const loaded = results
-          .filter((r): r is PromiseFulfilledResult<TokenView> => r.status === "fulfilled")
-          .map((r) => r.value);
-        setViews(loaded);
-      } catch (e) {
-        if (alive) setErr((e as Error).message);
+  // seq guards against a slow reload overwriting a newer one (live events retrigger this).
+  const seq = useRef(0);
+  const load = useCallback(async () => {
+    const mine = ++seq.current;
+    try {
+      const { tokens } = await api.tokens();
+      if (mine !== seq.current) return;
+      setCount(tokens.length);
+      if (tokens.length === 0) {
+        setViews([]);
+        return;
       }
-    })();
-    return () => {
-      alive = false;
-    };
+      const results = await Promise.allSettled(
+        tokens.map(async (summary) => {
+          const [detail, candles] = await Promise.all([
+            api.token(summary.token),
+            api.candles(summary.token).catch(() => ({ candles: [] })),
+          ]);
+          return buildTokenView(summary, detail, candles.candles);
+        }),
+      );
+      if (mine !== seq.current) return;
+      const loaded = results
+        .filter((r): r is PromiseFulfilledResult<TokenView> => r.status === "fulfilled")
+        .map((r) => r.value);
+      setViews(loaded);
+    } catch (e) {
+      if (mine === seq.current) setErr((e as Error).message);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+    return () => {
+      seq.current++; // invalidate in-flight loads on unmount
+    };
+  }, [load]);
+
+  // New launches appear immediately; trades refresh the feed gently (debounced — the list
+  // reload fans out into per-token detail fetches, so bursts must collapse to one).
+  useEffect(() => {
+    const refresh = debounced(() => void load(), 4000);
+    const offLaunch = onLive("launch", () => void load());
+    const offSwap = onLive("swap", () => refresh.call());
+    return () => {
+      refresh.cancel();
+      offLaunch();
+      offSwap();
+    };
+  }, [load]);
 
   const sorted = useMemo(() => {
     if (!views) return [];

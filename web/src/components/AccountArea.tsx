@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { AccountMenu } from "@/components/AccountMenu";
 import { useActiveWallet } from "@/components/Wallet";
 import { Balance } from "@/lib/blurBalances";
+import { onLive } from "@/lib/live";
 import { usdExact } from "@/lib/money";
 import { publicClient, robinhoodChain } from "@/lib/chain";
 import { switchToRobinhood } from "@/lib/tx";
@@ -42,10 +43,16 @@ export function AccountArea() {
         .then((b) => alive && setBalance(b))
         .catch(() => {});
     read();
+    // The 15s poll is the backstop (deposits, gas); the live stream makes the number move the
+    // instant one of MY swaps is indexed.
     const id = setInterval(read, 15_000);
+    const off = onLive("swap", (s) => {
+      if (s.trader && s.trader.toLowerCase() === address.toLowerCase()) read();
+    });
     return () => {
       alive = false;
       clearInterval(id);
+      off();
     };
   }, [wallet?.address]);
 

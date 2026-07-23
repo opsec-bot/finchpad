@@ -256,7 +256,7 @@ async function main() {
   // the site still works, just window-bounded.
   const indexer = spawn(
     process.execPath,
-    ["--env-file=.env", join(ROOT, "src", "indexer", "daemon.js"), "--interval", "4000"],
+    ["--env-file=.env", join(ROOT, "src", "indexer", "daemon.js"), "--interval", "2000"],
     { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...updates } },
   );
   children.push(indexer);

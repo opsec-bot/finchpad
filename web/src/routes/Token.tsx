@@ -14,6 +14,7 @@ import GraduationCard from "@/components/GraduationCard";
 import TrustPanel from "@/components/TrustPanel";
 import TokenActions from "@/components/TokenActions";
 import { change24h as change24hOf } from "@/lib/tokenView";
+import { onLive, debounced } from "@/lib/live";
 
 interface Trade {
   side: "buy" | "sell";
@@ -50,6 +51,53 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
     setTrades([]);
     void load();
   }, [load]);
+
+  // Live ticks: apply each swap to the screen IMMEDIATELY — price, market cap, chart candle
+  // and the trades list all move the moment the event lands — then run a debounced
+  // authoritative reload behind it to reconcile with indexed truth.
+  useEffect(() => {
+    const refresh = debounced(() => void load(), 1200);
+    const off = onLive("swap", (s) => {
+      if (s.token.toLowerCase() !== address.toLowerCase()) return;
+
+      // Header price + market cap tick in place.
+      setT((prev) =>
+        prev ? { ...prev, priceWeth: s.priceWeth, marketCapWeth: s.priceWeth * prev.totalSupply } : prev,
+      );
+
+      // Merge into the candle series (300s buckets — matches the API's default interval).
+      setCandles((prev) => {
+        const bucket = Math.floor(s.timestamp / 300) * 300;
+        const last = prev[prev.length - 1];
+        if (last && last.t === bucket) {
+          const updated = {
+            ...last,
+            h: Math.max(last.h, s.priceWeth),
+            l: Math.min(last.l, s.priceWeth),
+            c: s.priceWeth,
+          };
+          return [...prev.slice(0, -1), updated];
+        }
+        const open = last?.c ?? s.priceWeth;
+        return [
+          ...prev,
+          { t: bucket, o: open, h: Math.max(open, s.priceWeth), l: Math.min(open, s.priceWeth), c: s.priceWeth },
+        ];
+      });
+
+      // Prepend to recent trades.
+      setTrades((prev) => [
+        { side: s.side, tokenAmount: s.tokenAmount, wethAmount: s.wethAmount, timestamp: s.timestamp },
+        ...prev,
+      ]);
+
+      refresh.call();
+    });
+    return () => {
+      refresh.cancel();
+      off();
+    };
+  }, [address, load]);
 
   if (err) return <Card className="border-destructive/40 p-4 text-sm text-destructive">{err}</Card>;
   if (!t)
