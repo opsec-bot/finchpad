@@ -385,4 +385,38 @@ contract FinchLockerTest is Test {
         (,, bool graduated) = locker.graduationOf(address(token));
         assertFalse(graduated, "max threshold disables graduation");
     }
+
+    // --- admin is a transferable (2-step) owner: moves to the protocol Safe post-deploy ------
+
+    function test_admin_isOwnableTwoStepTransferToSafe() public {
+        address safe = makeAddr("safe");
+        // Non-owner cannot touch admin functions.
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        locker.setProtocolFeeRecipient(makeAddr("x"));
+
+        // Owner initiates transfer; ownership does NOT move until accepted (2-step safety).
+        vm.prank(admin);
+        locker.transferOwnership(safe);
+        assertEq(locker.owner(), admin, "still admin until accepted");
+        assertEq(locker.pendingOwner(), safe, "safe is pending");
+
+        // A wrong address cannot accept.
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        locker.acceptOwnership();
+
+        // Safe accepts -> now controls the protocol-fee-recipient power.
+        vm.prank(safe);
+        locker.acceptOwnership();
+        assertEq(locker.owner(), safe, "safe now owns");
+
+        vm.prank(safe);
+        locker.setProtocolFeeRecipient(makeAddr("newRecipient"));
+
+        // Old admin no longer has power.
+        vm.prank(admin);
+        vm.expectRevert();
+        locker.setProtocolFeeRecipient(makeAddr("nope"));
+    }
 }

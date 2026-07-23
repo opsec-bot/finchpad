@@ -240,6 +240,28 @@ set NOT surfaced there — read them directly and follow when relevant. Polish-r
 - Others present: gstack-* suite (design-consultation/html/review/shotgun, devex-review),
   context7-mcp, find-skills, etc.
 
+## DEPLOY SEQUENCE (admin hand-off, finalized 2026-07-23)
+
+Admin-power model, traced during the gate review:
+- **FeeRightsRegistry** — `Ownable`. Powers: `setTrustedSigner` (rotate/kill signer),
+  `approveCTO`. Transfers to the Safe (1-step) — the main launch-decision concern.
+- **FinchLocker** — now `Ownable2Step` (made transferable this session; was immutable and would
+  have stranded `setProtocolFeeRecipient` on the deployer EOA). Transfers to the Safe, Safe must
+  `acceptOwnership()`.
+- **FinchFactory** — `admin` immutable, but only does the one-time `setLocker`; harmless to
+  leave on the deployer.
+
+Deploy steps (`Deploy.s.sol` now automates the transfers when `FINCH_SAFE` is set):
+1. Set env: `FINCH_ADMIN` = deployer (required for one-shot wiring), `FINCH_SAFE` = the 2-of-3
+   Safe, `FINCH_GITHUB_SIGNER` = address(0) (claims disabled day one), plus the immutable args.
+2. Run `Deploy.s.sol` — deploys, wires (setLocker/setRegistry), then transfers registry (done)
+   + locker (pending) ownership to the Safe. Script prints the final step.
+3. **From the Safe, call `FinchLocker.acceptOwnership()`** — completes the locker hand-off.
+   Verify: `registry.owner()` == Safe and `locker.owner()` == Safe.
+4. Verify contracts on Blockscout; point frontend/API env at the live addresses; smoke-test.
+Covered by `test_admin_isOwnableTwoStepTransferToSafe` (2-step transfer, non-owner blocked,
+old admin loses power). Before deploy: raise the Safe to 2-of-3 (currently 1-of-1).
+
 ## Partial open-source — decision + honest analysis (added 2026-07-23)
 
 User idea: partially open-source finchpad for credibility, but not expose vulns — proposed

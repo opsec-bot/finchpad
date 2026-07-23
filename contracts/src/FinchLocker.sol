@@ -4,6 +4,8 @@ pragma solidity 0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {INonfungiblePositionManager} from "./interfaces/IUniswapV3.sol";
 import {IFinchLockerControl, ClaimKind} from "./interfaces/IFinchLockerControl.sol";
 
@@ -38,7 +40,7 @@ import {IFinchLockerControl, ClaimKind} from "./interfaces/IFinchLockerControl.s
  * The protocol share is sent to `protocolFeeRecipient`. The FINCH buyback-burn runs
  * downstream of that recipient (keeper/TWAP), not inside fee collection, matching pons.
  */
-contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
+contract FinchLocker is IFinchLockerControl, ReentrancyGuard, Ownable2Step {
     using SafeERC20 for IERC20;
 
     struct Launch {
@@ -81,7 +83,10 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
     uint256 public immutable graduationFeeThreshold;
     address public registry; // set once after deploy (registry <-> locker constructor cycle)
     address public protocolFeeRecipient;
-    address public immutable admin; // may update protocolFeeRecipient and set the registry once
+    // Admin = the Ownable2Step owner (may update protocolFeeRecipient and set the registry
+    // once). Transferable (2-step) so it can move to the protocol Safe AFTER the deployer wires
+    // the contracts in one shot — the immutable role couldn't, stranding these powers on the
+    // deployer EOA. See docs/security and the deploy runbook.
 
     mapping(address token => Launch) public launches;
 
@@ -107,7 +112,6 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
 
     error NotFactory();
     error NotRegistry();
-    error NotAdmin();
     error UnknownToken();
     error AlreadyRegistered();
     error ZeroAddress();
@@ -138,10 +142,10 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         uint16 referralShareBps_,
         uint16 graduationBonusBps_,
         uint256 graduationFeeThreshold_
-    ) {
+    ) Ownable(admin_) {
         if (
             factory_ == address(0) || positionManager_ == address(0) || weth_ == address(0)
-                || protocolFeeRecipient_ == address(0) || admin_ == address(0)
+                || protocolFeeRecipient_ == address(0)
         ) revert ZeroAddress();
         // referral is a fraction of the protocol share; graduation shifts at most the whole
         // protocol share to the creator. Both are bounded by BPS.
@@ -150,15 +154,13 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
         positionManager = INonfungiblePositionManager(positionManager_);
         weth = weth_;
         protocolFeeRecipient = protocolFeeRecipient_;
-        admin = admin_;
         referralShareBps = referralShareBps_;
         graduationBonusBps = graduationBonusBps_;
         graduationFeeThreshold = graduationFeeThreshold_;
     }
 
     /// @notice Wire the registry once (breaks the registry <-> locker constructor cycle).
-    function setRegistry(address registry_) external {
-        if (msg.sender != admin) revert NotAdmin();
+    function setRegistry(address registry_) external onlyOwner {
         if (registry_ == address(0)) revert ZeroAddress();
         if (registry != address(0)) revert AlreadyRegistered();
         registry = registry_;
@@ -415,8 +417,7 @@ contract FinchLocker is IFinchLockerControl, ReentrancyGuard {
 
     // --- admin ---
 
-    function setProtocolFeeRecipient(address recipient) external {
-        if (msg.sender != admin) revert NotAdmin();
+    function setProtocolFeeRecipient(address recipient) external onlyOwner {
         if (recipient == address(0)) revert ZeroAddress();
         protocolFeeRecipient = recipient;
     }

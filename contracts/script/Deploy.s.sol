@@ -30,7 +30,9 @@ import {FeatureBoost} from "../src/FeatureBoost.sol";
  *   FINCH_SWAP_ROUTER         Uniswap SwapRouter02 (the optional creator buy routes through it)
  *   FINCH_WETH                WETH (quote token) for the target chain
  * Optional env (default in parens):
- *   FINCH_ADMIN               admin/owner (deployer)
+ *   FINCH_ADMIN               admin/owner for one-shot wiring (MUST equal the deployer)
+ *   FINCH_SAFE                protocol Safe to receive ongoing admin (registry now, locker
+ *                             pending its acceptOwnership); unset = admin stays on deployer
  *   FINCH_PROTOCOL_RECIPIENT  protocol fee recipient (deployer)
  *   FINCH_FEE_RECIPIENT       launch-fee recipient (deployer)
  *   FINCH_GITHUB_SIGNER       EIP-712 signer for GitHub claims (address(0) until provisioned)
@@ -79,10 +81,24 @@ contract Deploy is Script {
         FeatureBoost featureBoost =
             new FeatureBoost(feeRecipient, admin, vm.envOr("FINCH_BOOST_PRICE_PER_HOUR", uint256(0.001 ether)));
 
-        // Wiring (requires admin == deployer; hand off admin afterward if desired).
+        // One-shot wiring needs admin == deployer (setLocker/setRegistry are owner-gated).
+        // Ongoing admin then hands off to the Safe below.
         require(admin == deployer, "set FINCH_ADMIN to the deployer for one-shot wiring, or wire manually");
         factory.setLocker(address(locker));
         locker.setRegistry(address(registry));
+
+        // Hand ONGOING admin to the protocol Safe, if FINCH_SAFE is set. The two transferable
+        // admin roles both move:
+        //   - FeeRightsRegistry (Ownable): setTrustedSigner + approveCTO — 1-step, moves now.
+        //   - FinchLocker (Ownable2Step): setProtocolFeeRecipient — the Safe must ACCEPT to
+        //     finish (call locker.acceptOwnership() from the Safe afterward).
+        // FinchFactory.admin is immutable but only does the one-time setLocker above, so it
+        // stays as the deployer harmlessly.
+        address safe = vm.envOr("FINCH_SAFE", address(0));
+        if (safe != address(0)) {
+            registry.transferOwnership(safe); // immediate
+            locker.transferOwnership(safe); // pending until the Safe calls acceptOwnership()
+        }
 
         vm.stopBroadcast();
 
@@ -92,5 +108,12 @@ contract Deploy is Script {
         console.log("FeeRightsRegistry: ", address(registry));
         console.log("FinchLock:         ", address(lockVault));
         console.log("FeatureBoost:      ", address(featureBoost));
+        if (safe != address(0)) {
+            console.log("--- admin hand-off ---");
+            console.log("registry owner -> Safe (done). locker owner -> Safe PENDING.");
+            console.log("FINAL STEP: from the Safe, call FinchLocker.acceptOwnership():", address(locker));
+        } else {
+            console.log("--- WARNING: FINCH_SAFE unset - admin stayed on the deployer EOA ---");
+        }
     }
 }
