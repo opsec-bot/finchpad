@@ -49,15 +49,18 @@ mascot/hero/placeholder assets were removed.
       blocks `+`-addresses and known temporary-email domains; SMS blocks VoIP numbers; automatic
       embedded-wallet creation on login is on (EVM). These are enforced in the Privy dashboard,
       not in our code — keep the app `loginMethods` and the dashboard's allowed methods in sync.
-- [ ] **MFA on transactions (Privy) — dashboard ON, frontend TODO.** User enabled MFA-for-
-      transactions in the Privy dashboard with **all factors** (authenticator app, passkey, SMS)
-      and a **1-hour** verification cache (default is 15 min). So Privy will require a second
-      factor before a wallet transaction, then not re-prompt for an hour. Frontend work: (1) an
-      **enrollment** surface in the Manage-account modal so users can set up authenticator /
-      passkey / SMS (`useMfa` — enroll/list/unenroll); (2) handle the MFA prompt/challenge in the
-      trade + launch flows (the SDK surfaces an MFA requirement on submit). This **interacts with
-      one-click trading**: see that section — disable-confirm-modals + the 1-hour MFA cache is
-      basically the one-click mechanism. Use the installed **`privy` skill** when building.
+- [x] **MFA on transactions (Privy) — frontend SHIPPED, needs live test.** Dashboard has MFA-
+      for-transactions ON (all factors, 1-hour cache). Built: (1) enrollment in the Manage-account
+      modal — "Set up two-factor auth" via `useMfaEnrollment().showMfaEnrollmentModal`
+      (`AccountMenu.tsx`); (2) `MfaGate` (`web/src/components/MfaGate.tsx`, mounted in `App`)
+      registers `useRegisterMfaListener` and completes the challenge with `useMfa` (`init` +
+      `promptMfa`, Privy's default verification UI) — needed because `showWalletUIs:false`
+      (one-click) means Privy no longer auto-shows the MFA prompt. **Not yet E2E-tested**: needs a
+      user with an enrolled factor to do a live trade (TOTP enrollment needs an authenticator
+      app). **Coupling to watch:** with MFA-for-transactions ON, every user must enroll a factor
+      before their FIRST trade (first trade/hour prompts MFA; the rest of the hour is true
+      one-click). If that first-trade friction isn't wanted, turn MFA-for-transactions OFF in the
+      dashboard and one-click works with zero prompt.
 - [ ] **SMS login — MAYBE (user undecided).** Dashboard supports it (VoIP blocked). If we want
       it, add `"sms"` to app `loginMethods`. Tradeoff: lowers signup friction and gives an MFA/
       recovery factor, but adds a phone-number PII surface and SMS cost. Decision pending; not
@@ -137,6 +140,14 @@ a different signing model. What we can actually do, cheapest first:
 - [ ] **Permit2 instead of a separate approve** — same idea from the allowance angle; a signed
       permit rather than an on-chain approve tx. Still a signature per trade, so low payoff on
       its own; only worth it bundled with the above.
+- [x] **One-click for embedded wallets — SHIPPED via `showWalletUIs:false`.** Set in
+      `main.tsx` PrivyProvider config: embedded-wallet transactions no longer show Privy's
+      confirmation modal, so buys/sells go through on one click. Our own `TradePanel` review +
+      launch review remain the "what am I signing" surface; MFA (MfaGate) still gates txns. Trade
+      toasts updated (no more "confirm in your wallet"). Turned out NOT to need custom session
+      signers — disable-confirm-modals + cached MFA is the mechanism, exactly as the dashboard
+      config predicted. Session signers / `delegated-actions` remain available if we ever want
+      fully headless/server-signed trading.
 - [ ] **The real fix — session keys / delegated signing (one click, no popup).** Requires a
       smart-account wallet, not a bare EOA:
       - Privy embedded wallets (already our default for `users-without-wallets`,

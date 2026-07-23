@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { usePrivy, useLinkAccount } from "@privy-io/react-auth";
+import { usePrivy, useLinkAccount, useMfaEnrollment } from "@privy-io/react-auth";
 import { Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
 export function AccountMenu() {
   const { user, logout, exportWallet } = usePrivy();
   const { linkEmail, linkWallet } = useLinkAccount();
+  const { showMfaEnrollmentModal } = useMfaEnrollment();
   const wallet = useActiveWallet();
   const { blurred, toggle } = useBlurBalances();
   const [open, setOpen] = useState(false);
@@ -134,6 +135,16 @@ export function AccountMenu() {
                 Export wallet
               </Button>
             )}
+          </div>
+
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Security</div>
+            <Button size="sm" variant="secondary" onClick={() => showMfaEnrollmentModal()}>
+              Set up two-factor auth
+            </Button>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Required to confirm trades. Verify once, then trade for an hour without re-prompting.
+            </p>
           </div>
         </div>
       </Modal>

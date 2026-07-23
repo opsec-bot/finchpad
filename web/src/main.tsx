@@ -39,7 +39,15 @@ function Root() {
         // Email + Google only, by design: finchpad is embedded-wallet-only so trading volume
         // stays in-app (see TODOS, "one-click … embedded-wallet only"). No external-wallet or
         // GitHub login. Signup creates an embedded wallet for the new user.
-        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
+        //
+        // showWalletUIs:false gives one-click trading — it suppresses Privy's per-transaction
+        // confirmation modal for the embedded wallet. We keep our own pre-trade review
+        // (TradePanel) and launch review as the "what am I signing" surface, and MFA
+        // (MfaGate + dashboard MFA-for-transactions) still gates transactions.
+        embeddedWallets: {
+          ethereum: { createOnLogin: "users-without-wallets" },
+          showWalletUIs: false,
+        },
         loginMethods: ["email", "google"],
       }}
     >

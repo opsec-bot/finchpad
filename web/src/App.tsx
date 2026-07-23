@@ -3,6 +3,7 @@ import { Feather, Plus } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { AccountArea } from "@/components/AccountArea";
+import { MfaGate } from "@/components/MfaGate";
 import Explore from "@/routes/Explore";
 import Launch from "@/routes/Launch";
 import Token from "@/routes/Token";
@@ -85,6 +86,7 @@ export default function App() {
         )}
       </main>
 
+      <MfaGate />
       <Toaster position="bottom-right" richColors closeButton />
     </>
   );

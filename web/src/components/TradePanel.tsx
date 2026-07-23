@@ -132,7 +132,9 @@ export default function TradePanel({
   async function execute() {
     if (!wallet || !q) return;
     setBusy(true);
-    const id = toast.loading(side === "buy" ? "Confirm the purchase in your wallet" : "Confirm the sale in your wallet");
+    // One-click: the embedded wallet signs without a confirmation prompt (see main.tsx
+    // showWalletUIs:false). A second factor may still be requested once per hour (MfaGate).
+    const id = toast.loading(side === "buy" ? "Buying…" : "Selling…");
     try {
       const client = await getWalletClient(wallet);
       const amountIn = parseEther(amount);
@@ -140,11 +142,10 @@ export default function TradePanel({
       if (side === "sell") {
         const allowance = await routerAllowance(publicClient, token, wallet.address as Address);
         if (allowance < amountIn) {
-          toast.loading(`Approve ${symbol} first`, { id });
+          toast.loading(`Approving ${symbol}…`, { id });
           const approveHash = await approveRouter(client, publicClient, token, maxUint256);
-          toast.loading("Approving…", { id });
           await publicClient.waitForTransactionReceipt({ hash: approveHash });
-          toast.loading("Confirm the sale in your wallet", { id });
+          toast.loading("Selling…", { id });
         }
       }
 
