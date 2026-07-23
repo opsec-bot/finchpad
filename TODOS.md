@@ -17,10 +17,13 @@ work, no code): scheduled for tomorrow.
       (rotates/kills the signer via `setTrustedSigner`, executes CTOs) will be a Safe, not an
       EOA — closes the "one key can redirect any token's fee stream" gate and gives the
       signer-key runbook a recovery path that survives one lost device.
-      - [ ] **Verify Safe is deployable on chain 4663 first** — the Safe singleton/factory may
-            not exist on Robinhood Chain. If it isn't there, options are deploying the Safe
-            contracts ourselves or launching with a hardware-wallet EOA and migrating via
-            `transferOwnership` once a Safe exists. Check before deploy day, not on it.
+      - [x] **Safe IS deployable on chain 4663 — VERIFIED 2026-07-23.** Queried the canonical
+            addresses against the RH-mainnet fork: Safe singleton v1.4.1
+            (0x41675C…461a, 23.6KB) + SafeProxyFactory v1.4.1 (0x4e1DCf…ec67), AND the v1.3.0
+            pair, MultiSend, and the fallback handler all have bytecode on 4663. So a Safe can
+            be created normally. Remaining unknown: whether the Safe **UI/transaction-service**
+            (app.safe.global) lists 4663 — if not, create via safe-cli or the Safe SDK against
+            these on-chain contracts. Contracts were the blocker; that's cleared.
       - [ ] Create the Safe (solo founder: 2-of-3 with keys on separate devices/locations
             beats 1-of-1, which is just an EOA with extra steps).
       - [ ] Pass the Safe address as `admin` in `Deploy.s.sol`.
