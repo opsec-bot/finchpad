@@ -11,6 +11,7 @@ import { getWalletClient, publicClient } from "@/lib/tx";
 import { addresses, explorerTx } from "@/lib/chain";
 import { feeRightsRegistryAbi } from "@/lib/abis";
 import { readableError } from "@/lib/trade";
+import { api } from "@/lib/api";
 import { navigateTo } from "@/lib/nav";
 
 interface MenuClaim {
@@ -89,6 +90,7 @@ export function ClaimCenter({ open, onClose }: { open: boolean; onClose: () => v
       });
       const hash = await client.writeContract(request);
       await publicClient.waitForTransactionReceipt({ hash });
+      api.recordAction("claim", hash, c.token).catch(() => {});
       toast.success(`Claimed $${c.symbol}`, {
         id,
         description: "Escrowed fees paid out; future creator fees route to your wallet.",

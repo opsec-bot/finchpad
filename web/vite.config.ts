@@ -28,6 +28,7 @@ export default defineConfig({
       "/events": "http://localhost:8787",
       "/ledger": "http://localhost:8787",
       "/transfers": "http://localhost:8787",
+      "/actions": "http://localhost:8787",
     },
   },
 });

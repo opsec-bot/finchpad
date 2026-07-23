@@ -47,6 +47,21 @@ export function usersDb() {
     );
     CREATE INDEX IF NOT EXISTS transfers_from_idx ON transfers (from_addr, ts DESC);
     CREATE INDEX IF NOT EXISTS transfers_to_idx ON transfers (to_addr, ts DESC);
+
+    -- Platform write-actions that aren't swaps/launches/transfers: burn, collect, claim,
+    -- boost. The client posts {type, token, txHash}; the server verifies the tx exists,
+    -- succeeded, and was SENT BY the recorded actor before inserting — so the ledger reflects
+    -- real, self-attributable actions and nothing else.
+    CREATE TABLE IF NOT EXISTS actions (
+      tx_hash   TEXT NOT NULL,
+      actor     TEXT NOT NULL,               -- tx.from, lowercase
+      type      TEXT NOT NULL CHECK (type IN ('burn','collect','claim','boost')),
+      token     TEXT,                        -- lowercase, nullable
+      ts        INTEGER NOT NULL,
+      block     INTEGER NOT NULL,
+      PRIMARY KEY (tx_hash, type)
+    );
+    CREATE INDEX IF NOT EXISTS actions_actor_idx ON actions (actor, ts DESC);
   `);
   return _db;
 }
@@ -174,6 +189,21 @@ export function listTransfers(address, limit = 100) {
     `SELECT tx_hash, from_addr, to_addr, value_eth, ts FROM transfers
      WHERE from_addr = ? OR to_addr = ? ORDER BY ts DESC LIMIT ?`
   ).all(a, a, limit);
+}
+
+export const ACTION_TYPES = new Set(["burn", "collect", "claim", "boost"]);
+
+export function insertAction({ txHash, actor, type, token, ts, block }) {
+  usersDb().prepare(
+    `INSERT OR IGNORE INTO actions (tx_hash, actor, type, token, ts, block)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(txHash.toLowerCase(), actor.toLowerCase(), type, token ? token.toLowerCase() : null, ts, block);
+}
+
+export function listActions(actor, limit = 100) {
+  return usersDb().prepare(
+    `SELECT tx_hash, type, token, ts FROM actions WHERE actor = ? ORDER BY ts DESC LIMIT ?`
+  ).all(actor.toLowerCase(), limit);
 }
 
 export function usernameAvailable(username, forAddress = null) {

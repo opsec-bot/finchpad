@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  BadgeCheck,
+  Coins,
   ExternalLink,
+  Flame,
   Gift,
   Rocket,
   SendHorizontal,
   TrendingDown,
   TrendingUp,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -29,6 +33,10 @@ const KIND: Record<LedgerRow["type"], { icon: LucideIcon; label: string; tone: s
   send: { icon: SendHorizontal, label: "Sent", tone: "text-foreground" },
   withdraw: { icon: ArrowUpRight, label: "Withdrew", tone: "text-foreground" },
   receive: { icon: ArrowDownLeft, label: "Received", tone: "text-primary" },
+  burn: { icon: Flame, label: "Burned", tone: "text-destructive" },
+  collect: { icon: Coins, label: "Collected fees", tone: "text-primary" },
+  claim: { icon: BadgeCheck, label: "Claimed", tone: "text-primary" },
+  boost: { icon: Zap, label: "Boosted", tone: "text-highlight" },
 };
 
 function ago(ts: number): string {

@@ -20,7 +20,7 @@ import { publicClient } from "../lib/chain.js";
 import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
 import { toCandles } from "../lib/ohlc.js";
 import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions, listUnclaimedBindings, listTraderSwaps, listDeployerLaunches, listReferralPayouts, lastTradePrice } from "../indexer/db.js";
-import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable, insertTransfer, listTransfers } from "./users.js";
+import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable, insertTransfer, listTransfers, insertAction, listActions, ACTION_TYPES } from "./users.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -437,6 +437,12 @@ async function route(url) {
       }
     }
 
+    // burn / collect / claim / boost — self-attested, chain-verified at record time.
+    for (const act of listActions(a, 100)) {
+      const row = act.token && db ? getTokenRow(db, act.token) : null;
+      rows.push({ type: act.type, token: act.token ?? undefined, symbol: row?.symbol, ts: Number(act.ts), txHash: act.tx_hash });
+    }
+
     rows.sort((x, y) => y.ts - x.ts);
     return {
       status: 200,
@@ -683,6 +689,33 @@ export const server = createServer(async (req, res) => {
       if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
       const result = await applyProfileUpdate(body);
       return send(req, res, result.ok ? 200 : 400, result, { "cache-control": "no-store" });
+    }
+
+    // Write endpoint #3: record a platform action (burn/collect/claim/boost) in the ledger.
+    // Client posts {type, token, txHash}; the server verifies the tx succeeded and was SENT
+    // BY the address it attributes it to (tx.from), so nobody can attribute someone else's
+    // action to themselves or invent one.
+    if (req.method === "POST" && url.pathname === "/actions") {
+      const body = await readJsonBody(req, 1024).catch((e) => ({ __err: e.message }));
+      if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
+      const { txHash, type, token } = body;
+      if (typeof txHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(txHash))
+        return send(req, res, 400, { error: "txHash must be a 0x…64 hash" }, { "cache-control": "no-store" });
+      if (!ACTION_TYPES.has(type)) return send(req, res, 400, { error: "invalid action type" }, { "cache-control": "no-store" });
+      if (token !== undefined && token !== null && !isAddress(token))
+        return send(req, res, 400, { error: "token must be a 0x address" }, { "cache-control": "no-store" });
+      try {
+        const [tx, receipt] = await Promise.all([
+          publicClient.getTransaction({ hash: txHash }),
+          publicClient.getTransactionReceipt({ hash: txHash }),
+        ]);
+        if (receipt.status !== "success") return send(req, res, 400, { error: "transaction reverted" }, { "cache-control": "no-store" });
+        const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+        insertAction({ txHash, actor: tx.from, type, token: token ?? null, ts: Number(block.timestamp), block: Number(receipt.blockNumber) });
+        return send(req, res, 200, { ok: true }, { "cache-control": "no-store" });
+      } catch {
+        return send(req, res, 404, { error: "transaction not found or not yet mined" }, { "cache-control": "no-store" });
+      }
     }
 
     // Write endpoint #2: record a Send/Withdraw in the ledger. The client only supplies a tx

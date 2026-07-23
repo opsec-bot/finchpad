@@ -164,8 +164,14 @@ mascot/hero/placeholder assets were removed.
       referral payouts, sends (with @username counterparty links) / withdrawals / receives.
       Live-refreshes when your own swaps index. Scope per user call: platform activity only;
       header links to Blockscout for the full on-chain history. `GET /ledger/:address`.
-- [ ] Later: burns / collects / claims / boost purchases in the ledger (event-scan by actor
-      in the daemon is the honest source); per-token sends (currently ETH only).
+- [x] **Ledger coverage for burns/collects/claims/boosts — SHIPPED 2026-07-23.** Each write
+      component posts {type, token, txHash} to `POST /actions`; the server verifies the tx
+      succeeded and was SENT BY the attributed actor (tx.from) before inserting into an
+      `actions` table — self-attested but chain-verified, so nobody can claim another's action.
+      Merged into `/ledger` and rendered on the Activity page with per-type icons.
+- [ ] Later: per-token sends (SendModal is ETH only); lock (separate FinchLock product,
+      deferred); CTO-request FORM (off-chain admin queue — `cto_requests` table exists in
+      schema.sql; needs a request UI + an admin review surface, bigger than the other flows).
 
 ## Token display — show liquidity (added 2026-07-22)
 

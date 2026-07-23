@@ -41,6 +41,8 @@ export interface TokenDetail {
   knownToFactory: boolean;
   deployer: `0x${string}` | null;
   feeWallet: `0x${string}` | null;
+  /** Current fee-rights controller — only they can redirect fees. Null for foreign tokens. */
+  controller: `0x${string}` | null;
   github: GithubBinding | null;
   graduation: {
     earnedFeesEth: number;
@@ -109,8 +111,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return json;
 }
 
+export type ActionType = "burn" | "collect" | "claim" | "boost";
+
 export interface LedgerRow {
-  type: "buy" | "sell" | "launch" | "referral" | "send" | "withdraw" | "receive";
+  type: "buy" | "sell" | "launch" | "referral" | "send" | "withdraw" | "receive" | ActionType;
   token?: string;
   symbol?: string;
   tokenAmount?: number;
@@ -125,6 +129,8 @@ export const api = {
   ledger: (address: string) =>
     get<{ address: string; count: number; activity: LedgerRow[]; ethUsd: number | null }>(`/ledger/${address}`),
   recordTransfer: (txHash: string) => post<{ ok: boolean }>("/transfers", { txHash }),
+  recordAction: (type: ActionType, txHash: string, token?: string) =>
+    post<{ ok: boolean }>("/actions", { type, txHash, token }),
   stats: () => get<ProtocolStatsResponse>("/stats"),
   referrals: (address: string) => get<ReferralsResponse>(`/referrals/${address}`),
   profileByAddress: (address: string) => get<{ profile: Profile | null }>(`/users/by-address/${address}`),

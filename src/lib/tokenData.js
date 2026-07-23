@@ -87,6 +87,7 @@ export async function getTokenDetail(token, factoryAddress) {
         launched = {
           exists: true,
           deployer: l[3],
+          controller: l[3], // current fee-rights controller (== creator until handed off)
           poolFee: 10000,
           feeWallet: l[4],
           claimKind: Number(l[5]), // 0 none, 1 repo, 2 user
@@ -165,6 +166,7 @@ export async function getTokenDetail(token, factoryAddress) {
     deployer: known ? launched.deployer : null,
     poolFee: known ? Number(launched.poolFee) : null,
     feeWallet: known ? (launched.feeWallet ?? null) : null,
+    controller: known ? (launched.controller ?? null) : null,
     // GitHub claim surface for the frontend and external indexers: which identity the fee
     // right is bound to, whether it has been claimed, and what's escrowed for it so far.
     github: known && launched.claimKind

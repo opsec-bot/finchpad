@@ -13,6 +13,7 @@ import { getWalletClient, publicClient } from "@/lib/tx";
 import { addresses, explorerTx } from "@/lib/chain";
 import { feeRightsRegistryAbi } from "@/lib/abis";
 import { readableError } from "@/lib/trade";
+import { api } from "@/lib/api";
 import type { TokenDetail } from "@/lib/api";
 
 interface ClaimPayload {
@@ -95,6 +96,7 @@ export default function ClaimFees({ token, onClaimed }: { token: TokenDetail; on
         });
         const hash = await client.writeContract(request);
         await publicClient.waitForTransactionReceipt({ hash });
+        api.recordAction("claim", hash, token.address).catch(() => {});
         toast.success(`Claimed as ${claim.identity}`, {
           id,
           description:

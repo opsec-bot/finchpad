@@ -12,6 +12,7 @@ import { addresses, explorerTx } from "@/lib/chain";
 import { featureBoostAbi } from "@/lib/abis";
 import { readableError } from "@/lib/trade";
 import { useEthUsd, usd } from "@/lib/money";
+import { api } from "@/lib/api";
 import type { TokenDetail } from "@/lib/api";
 
 const HOUR_OPTIONS = [6, 12, 24];
@@ -69,6 +70,7 @@ export default function PromoteCard({ token, onChanged }: { token: TokenDetail; 
       });
       const hash = await client.writeContract(request);
       await publicClient.waitForTransactionReceipt({ hash });
+      api.recordAction("boost", hash, token.address).catch(() => {});
       toast.success(`Boosted for ${hours} hours`, {
         id,
         description: active ? "Added to the existing boost window." : "Badge, highlighted card, and top-rail placement are live.",
