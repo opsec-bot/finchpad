@@ -180,6 +180,25 @@ mascot/hero/placeholder assets were removed.
 - [ ] Later: lock (separate FinchLock product, deferred). CTO backlogged — see the dedicated
       section below.
 
+## Skills available in ~/.agents/skills (noted 2026-07-23 — I'd missed these)
+
+The Skill TOOL only lists higgsfield/privy/artifact skills, but `~/.agents/skills/` has a large
+set NOT surfaced there — read them directly and follow when relevant. Polish-relevant ones:
+- **accessibility** (WCAG 2.2) — APPLIED 2026-07-23: accessible modals (focus trap/restore,
+  scroll lock, aria-labelledby) + aria-labels on placeholder-only inputs. More to do: a full
+  contrast audit (muted-on-dark ratios), keyboard-nav pass on the AccountMenu dropdown (it's a
+  div menu, not a native <select> — should support arrow keys + roving tabindex), and Sparkline/
+  chart text alternatives.
+- **frontend-design** — its guidance says avoid generic choices and "NEVER converge on common
+  choices (Space Grotesk, for example)" — which is exactly the display font we picked. If we
+  ever want a more distinctive brand type, revisit; for now the clean fomo-style direction is a
+  deliberate user call, so keep it.
+- **gstack-design-review** — a full visual-QA skill (needs the gstack browser tooling + a live
+  URL; screenshots before/after). Worth running once the Chrome extension is reconnected for a
+  real rendered-pixel pass (spacing, hierarchy, mobile).
+- Others present: gstack-* suite (design-consultation/html/review/shotgun, devex-review),
+  context7-mcp, find-skills, etc.
+
 ## Partial open-source — decision + honest analysis (added 2026-07-23)
 
 User idea: partially open-source finchpad for credibility, but not expose vulns — proposed
