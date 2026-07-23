@@ -218,11 +218,16 @@ export function readableError(err: unknown): string {
   if (/Too little received|STF|amountOutMinimum/i.test(raw))
     return "Price moved beyond your slippage tolerance. Raise slippage or try a smaller size.";
   if (/insufficient funds/i.test(raw)) return "Not enough ETH to cover the trade plus gas.";
+  // viem's gas-affordability error says "…exceeds the balance of the account" — that's an
+  // empty-of-ETH wallet, NOT a token balance problem. Must be matched before the generic
+  // "exceeds the balance" ERC20 case or it reads as the wrong failure entirely.
+  if (/exceeds the balance of the account|total cost.*of executing this transaction/i.test(raw))
+    return "Not enough ETH in your wallet to pay for gas. Add ETH and try again.";
   if (/TF\b/.test(raw)) return "The token blocked this transfer — it may still be inside its anti-snipe window.";
   if (/SPL|LOK/.test(raw)) return "The pool rejected the price limit. Try again.";
   if (/nonce too (high|low)/i.test(raw))
     return "Your wallet's nonce is out of sync with the chain. In MetaMask: Settings, Advanced, Clear activity tab data.";
-  if (/exceeds the balance|transfer amount exceeds/i.test(raw)) return "Amount exceeds your balance.";
+  if (/transfer amount exceeds|exceeds the balance/i.test(raw)) return "Amount exceeds your token balance.";
 
   // Keep it to one line; the console has the full object for anyone debugging.
   return raw.split("\n")[0].slice(0, 200);
