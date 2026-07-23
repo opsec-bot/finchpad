@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, parseEther, maxUint256 } from "viem";
 import type { Address } from "viem";
 import { usePrivy } from "@privy-io/react-auth";
+import { ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 const AUTO_SLIPPAGE = 100;
 const QUOTE_DEBOUNCE_MS = 350;
 const ETH_PRESETS = [0.01, 0.1, 0.5, 1];
+const USD_PRESETS = [10, 50, 100, 500];
 const PCT_PRESETS = [25, 50, 75, 100];
 
 export default function TradePanel({
@@ -42,6 +44,8 @@ export default function TradePanel({
 
   const [side, setSide] = useState<Side>("buy");
   const [amount, setAmount] = useState("");
+  // Buys can be entered in USD or ETH; this only applies to the "You pay" field on buy.
+  const [payCcy, setPayCcy] = useState<"ETH" | "USD">("ETH");
   const [slippage, setSlippage] = useState<number | "auto">("auto");
   const [custom, setCustom] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
@@ -53,6 +57,27 @@ export default function TradePanel({
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
 
   const slippageBps = slippage === "auto" ? AUTO_SLIPPAGE : slippage;
+  const priceReady = ethUsd != null && ethUsd > 0;
+
+  // The ETH amount actually traded. On buy, the field may hold USD — convert to ETH for quoting
+  // and execution; on sell it is always token units. Empty string when there is nothing to quote.
+  const tradeAmountStr = useMemo(() => {
+    if (side === "sell") return amount;
+    if (payCcy === "USD" && priceReady) {
+      const eth = Number(amount) / (ethUsd as number);
+      return Number.isFinite(eth) && eth > 0 ? eth.toFixed(18) : "";
+    }
+    return amount;
+  }, [amount, side, payCcy, priceReady, ethUsd]);
+
+  function togglePayCcy() {
+    if (!priceReady) return;
+    const n = Number(amount);
+    if (amount && n > 0) {
+      setAmount(payCcy === "ETH" ? (n * (ethUsd as number)).toFixed(2) : (n / (ethUsd as number)).toFixed(6));
+    }
+    setPayCcy((p) => (p === "ETH" ? "USD" : "ETH"));
+  }
 
   const refreshBalances = useCallback(async () => {
     if (!wallet) return setEthBalance(null), setTokenBalance(null);
@@ -72,7 +97,7 @@ export default function TradePanel({
   // Debounced quoting; the ref stops a slow response overwriting a newer one.
   const seq = useRef(0);
   useEffect(() => {
-    if (!amount || !(Number(amount) > 0)) {
+    if (!tradeAmountStr || !(Number(tradeAmountStr) > 0)) {
       setQ(null);
       setQuoteErr(null);
       setGasEth(null);
@@ -87,7 +112,7 @@ export default function TradePanel({
           pool,
           tokenIsToken0,
           side,
-          amountIn: parseEther(amount),
+          amountIn: parseEther(tradeAmountStr),
           slippageBps,
         });
         if (mine !== seq.current) return;
@@ -104,20 +129,20 @@ export default function TradePanel({
       }
     }, QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [amount, side, slippageBps, token, pool, tokenIsToken0]);
+  }, [tradeAmountStr, side, slippageBps, token, pool, tokenIsToken0]);
 
   const balance = side === "buy" ? ethBalance : tokenBalance;
 
   const problem = useMemo(() => {
-    if (!amount || !(Number(amount) > 0)) return null;
+    if (!tradeAmountStr || !(Number(tradeAmountStr) > 0)) return null;
     if (balance !== null) {
-      const want = parseEther(amount);
+      const want = parseEther(tradeAmountStr);
       if (side === "buy" && want >= balance) return "Not enough ETH — leave a little for gas.";
       if (side === "sell" && want > balance) return `Not enough ${symbol}.`;
     }
     if (slippage !== "auto" && (slippageBps <= 0 || slippageBps > 5000)) return "Slippage must be between 0% and 50%.";
     return null;
-  }, [amount, balance, side, symbol, slippage, slippageBps]);
+  }, [tradeAmountStr, balance, side, symbol, slippage, slippageBps]);
 
   const canTrade = authenticated && wallet && q && !problem && !busy && !quoting;
   const impactPct = q ? q.priceImpact * 100 : 0;
@@ -126,7 +151,9 @@ export default function TradePanel({
     if (balance === null) return;
     // Keep a sliver of ETH back for gas rather than handing over a doomed transaction.
     const usable = side === "buy" ? (balance * 99n) / 100n : balance;
-    setAmount(formatEther((usable * BigInt(pct)) / 100n));
+    const eth = Number(formatEther((usable * BigInt(pct)) / 100n));
+    // In USD buy mode the field holds dollars, so convert the ETH slice to its USD value.
+    setAmount(side === "buy" && payCcy === "USD" && priceReady ? (eth * (ethUsd as number)).toFixed(2) : String(eth));
   }
 
   async function execute() {
@@ -137,7 +164,7 @@ export default function TradePanel({
     const id = toast.loading(side === "buy" ? "Buying…" : "Selling…");
     try {
       const client = await getWalletClient(wallet);
-      const amountIn = parseEther(amount);
+      const amountIn = parseEther(tradeAmountStr);
 
       if (side === "sell") {
         const allowance = await routerAllowance(publicClient, token, wallet.address as Address);
@@ -210,16 +237,34 @@ export default function TradePanel({
             disabled={busy}
             className="tabular h-14 pr-20 text-2xl font-semibold"
           />
-          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
-            {side === "buy" ? "ETH" : symbol}
-          </span>
+          {side === "buy" ? (
+            <button
+              type="button"
+              onClick={togglePayCcy}
+              disabled={busy || !priceReady}
+              title="Switch between USD and ETH"
+              className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-muted disabled:opacity-60"
+            >
+              {payCcy}
+              <ArrowLeftRight className="size-3" aria-hidden />
+            </button>
+          ) : (
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+              {symbol}
+            </span>
+          )}
         </div>
-        {ethUsd && amount && Number(amount) > 0 && side === "buy" && (
-          <div className="text-xs text-muted-foreground tabular">≈ {usd(Number(amount) * ethUsd)}</div>
+        {side === "buy" && priceReady && amount && Number(amount) > 0 && (
+          <div className="text-xs text-muted-foreground tabular">
+            ≈{" "}
+            {payCcy === "USD"
+              ? `${(Number(amount) / (ethUsd as number)).toFixed(6)} ETH`
+              : usd(Number(amount) * (ethUsd as number))}
+          </div>
         )}
 
         <div className="grid grid-cols-4 gap-1.5 pt-1">
-          {(side === "buy" ? ETH_PRESETS : PCT_PRESETS).map((v) => (
+          {(side === "buy" ? (payCcy === "USD" ? USD_PRESETS : ETH_PRESETS) : PCT_PRESETS).map((v) => (
             <Button
               key={v}
               variant="secondary"
@@ -228,7 +273,7 @@ export default function TradePanel({
               onClick={() => (side === "buy" ? setAmount(String(v)) : setPercent(v))}
               className="text-xs"
             >
-              {side === "buy" ? (ethUsd ? usd(v * ethUsd) : `${v} ETH`) : `${v}%`}
+              {side === "buy" ? (payCcy === "USD" ? `$${v}` : ethUsd ? usd(v * ethUsd) : `${v} ETH`) : `${v}%`}
             </Button>
           ))}
         </div>

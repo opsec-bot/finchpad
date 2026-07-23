@@ -140,7 +140,7 @@ export function AccountMenu() {
           <div>
             <div className="mb-1 text-xs text-muted-foreground">Security</div>
             <Button size="sm" variant="secondary" onClick={() => showMfaEnrollmentModal()}>
-              Set up two-factor auth
+              Manage two-factor auth
             </Button>
             <p className="mt-1.5 text-xs text-muted-foreground">
               Required to confirm trades. Verify once, then trade for an hour without re-prompting.

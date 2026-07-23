@@ -49,7 +49,7 @@ mascot/hero/placeholder assets were removed.
       blocks `+`-addresses and known temporary-email domains; SMS blocks VoIP numbers; automatic
       embedded-wallet creation on login is on (EVM). These are enforced in the Privy dashboard,
       not in our code — keep the app `loginMethods` and the dashboard's allowed methods in sync.
-- [x] **MFA on transactions (Privy) — frontend SHIPPED, needs live test.** Dashboard has MFA-
+- [x] **MFA on transactions (Privy) — SHIPPED + live-tested 2026-07-22 (works).** Dashboard has MFA-
       for-transactions ON (all factors, 1-hour cache). Built: (1) enrollment in the Manage-account
       modal — "Set up two-factor auth" via `useMfaEnrollment().showMfaEnrollmentModal`
       (`AccountMenu.tsx`); (2) `MfaGate` (`web/src/components/MfaGate.tsx`, mounted in `App`)
@@ -140,6 +140,10 @@ a different signing model. What we can actually do, cheapest first:
 - [ ] **Permit2 instead of a separate approve** — same idea from the allowance angle; a signed
       permit rather than an on-chain approve tx. Still a signature per trade, so low payoff on
       its own; only worth it bundled with the above.
+- [x] **Buy in USD or ETH — SHIPPED.** The buy "You pay" field has a USD⇄ETH toggle
+      (`TradePanel.tsx`): enter a fiat amount and it converts to ETH (via `ethUsd`) for quoting +
+      execution, with the ETH equivalent shown beneath and `$10/$50/$100/$500` presets. Sell
+      stays in token units. Falls back to ETH-only when the price feed is down.
 - [x] **One-click for embedded wallets — SHIPPED via `showWalletUIs:false`.** Set in
       `main.tsx` PrivyProvider config: embedded-wallet transactions no longer show Privy's
       confirmation modal, so buys/sells go through on one click. Our own `TradePanel` review +
