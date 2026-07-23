@@ -10,8 +10,10 @@ import { join } from "node:path";
 const DB = join(tmpdir(), `finchpad-users-test-${process.pid}.db`);
 process.env.FINCHPAD_USERS_DB_PATH = DB;
 
-const { usernameProblem, profileMessage, applyProfileUpdate, getUserByUsername, usernameAvailable } =
-  await import("../src/backend/users.js");
+const {
+  usernameProblem, profileMessage, applyProfileUpdate, getUserByUsername, usernameAvailable,
+  insertTransfer, listTransfers, insertAction, listActions, ACTION_TYPES,
+} = await import("../src/backend/users.js");
 const { privateKeyToAccount } = await import("viem/accounts");
 
 const account = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
@@ -89,4 +91,53 @@ test("username uniqueness: second address cannot take a claimed name", async () 
   assert.match(r.error, /taken/);
   assert.equal(usernameAvailable("credit").available, false);
   assert.equal(usernameAvailable("credit2").available, true);
+});
+
+// --- ledger: transfers + actions (would have caught the ALTER-migration typo) -----------
+
+const A = "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaAAAAAAaAaaAAa".toLowerCase();
+const B = "0xbBbBbBbbBbBbBbbBbBBBBBBBBbbBBBBBBbBbbBBb".toLowerCase();
+const TOK = "0xcCcCcCccCcCcCccccCCCCCCCCccCCCCCCcCcccCCc".toLowerCase();
+
+test("transfers: ETH transfer records and lists for both parties", () => {
+  insertTransfer({ txHash: "0x" + "1".repeat(64), from: A, to: B, valueEth: 1.5, ts: 100, block: 1 });
+  const fromA = listTransfers(A);
+  const toB = listTransfers(B);
+  assert.equal(fromA.length >= 1, true, "sender sees it");
+  assert.equal(toB.length >= 1, true, "recipient sees it");
+  const row = fromA.find((r) => r.tx_hash === "0x" + "1".repeat(64));
+  assert.equal(row.value_eth, 1.5);
+  assert.equal(row.token, null, "ETH transfer has null token");
+});
+
+test("transfers: token transfer records token + amount (migration columns exist)", () => {
+  insertTransfer({ txHash: "0x" + "2".repeat(64), from: A, to: B, valueEth: 0, token: TOK, tokenAmount: 1000, ts: 200, block: 2 });
+  const row = listTransfers(A).find((r) => r.tx_hash === "0x" + "2".repeat(64));
+  assert.equal(row.token, TOK, "token column populated");
+  assert.equal(row.token_amount, 1000);
+  assert.equal(row.value_eth, 0);
+});
+
+test("transfers: same tx_hash is idempotent (INSERT OR IGNORE)", () => {
+  const h = "0x" + "3".repeat(64);
+  insertTransfer({ txHash: h, from: A, to: B, valueEth: 2, ts: 300, block: 3 });
+  insertTransfer({ txHash: h, from: A, to: B, valueEth: 999, ts: 300, block: 3 });
+  const rows = listTransfers(A).filter((r) => r.tx_hash === h);
+  assert.equal(rows.length, 1, "no duplicate");
+  assert.equal(rows[0].value_eth, 2, "first write wins");
+});
+
+test("actions: valid types record and list; PK dedupes per (hash,type)", () => {
+  assert.equal([...ACTION_TYPES].sort().join(","), "boost,burn,claim,collect");
+  insertAction({ txHash: "0x" + "4".repeat(64), actor: A, type: "burn", token: TOK, ts: 400, block: 4 });
+  insertAction({ txHash: "0x" + "4".repeat(64), actor: A, type: "collect", token: TOK, ts: 400, block: 4 });
+  insertAction({ txHash: "0x" + "4".repeat(64), actor: A, type: "burn", token: TOK, ts: 400, block: 4 }); // dupe
+  const rows = listActions(A);
+  assert.equal(rows.filter((r) => r.tx_hash === "0x" + "4".repeat(64) && r.type === "burn").length, 1, "burn deduped");
+  assert.equal(rows.some((r) => r.type === "collect"), true, "different type on same hash kept");
+});
+
+test("actions: only the actor sees their actions", () => {
+  insertAction({ txHash: "0x" + "5".repeat(64), actor: A, type: "boost", token: TOK, ts: 500, block: 5 });
+  assert.equal(listActions(B).some((r) => r.tx_hash === "0x" + "5".repeat(64)), false, "B does not see A's action");
 });
