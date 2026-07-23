@@ -8,6 +8,9 @@ import TokenCardSkeleton from "@/components/TokenCardSkeleton";
 import { api } from "@/lib/api";
 import { buildTokenView } from "@/lib/tokenView";
 import type { TokenView } from "@/lib/tokenView";
+// Bundled via import so Vite emits it under /assets/ (the only path the backend serves);
+// a /public URL like /brand/hero.png would 404 in production.
+import heroArt from "@/assets/brand/hero.png";
 
 type Sort = "trending" | "mcap" | "new" | "graduating";
 
@@ -84,12 +87,24 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
 
   return (
     <div className="rise">
-      {/* Hero strip */}
-      <div className="mb-5 flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-balance md:text-3xl">Discover tokens on finchpad</h1>
-        <p className="max-w-xl text-sm leading-relaxed text-muted-foreground text-pretty">
-          Fixed supply, permanently locked liquidity, and verifiable fees. Every token graduates the same way.
-        </p>
+      {/* Hero strip. The mascot art bleeds in from the right; a left-to-right scrim in the
+          theme background colour keeps the headline readable over it in either theme. */}
+      <div className="relative mb-5 overflow-hidden rounded-2xl border border-border">
+        <img
+          src={heroArt}
+          alt=""
+          aria-hidden
+          className="pointer-events-none absolute inset-0 size-full object-cover object-right"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/85 to-transparent" />
+        <div className="relative flex max-w-xl flex-col gap-2 px-6 py-10 md:px-8 md:py-14">
+          <h1 className="text-2xl font-semibold tracking-tight text-balance md:text-3xl">
+            Discover tokens on finchpad
+          </h1>
+          <p className="text-sm leading-relaxed text-muted-foreground text-pretty">
+            Fixed supply, permanently locked liquidity, and verifiable fees. Every token graduates the same way.
+          </p>
+        </div>
       </div>
 
       <div className="mb-5">

@@ -28,6 +28,48 @@ work, no code): scheduled for tomorrow.
             commands become Safe transactions (Safe UI or safe-cli) — re-time the "<1 hour
             containment" target against how fast a 2-of-3 can actually sign.
 
+## Trading UX — one-click buy/sell without signing every trade (added 2026-07-22)
+
+User pain: having to confirm in MetaMask on every single buy/sell is annoying — wants to just
+click Buy / Sell and have it go through.
+
+Reality check before anyone chases "make MetaMask stop prompting": an external EOA (MetaMask,
+Rabby, hardware) confirms **every** transaction by design — the wallet, not finchpad, owns that
+prompt, and there is no API to suppress it. So this is not a bug to fix in `trade.ts`; it needs
+a different signing model. What we can actually do, cheapest first:
+
+- [ ] **Collapse the two-prompt sell into one (EIP-5792 `wallet_sendCalls`).** First sell of a
+      token is approve + swap = 2 prompts; subsequent sells are already 1 (we approve
+      `maxUint256`, `TradePanel.tsx:144`, and skip when allowance is set, `:141`). Batching the
+      first sell's approve+swap into a single `wallet_sendCalls` makes it one confirmation on
+      wallets that support 5792. Does NOT remove the per-trade prompt — just halves the worst case.
+- [ ] **Permit2 instead of a separate approve** — same idea from the allowance angle; a signed
+      permit rather than an on-chain approve tx. Still a signature per trade, so low payoff on
+      its own; only worth it bundled with the above.
+- [ ] **The real fix — session keys / delegated signing (one click, no popup).** Requires a
+      smart-account wallet, not a bare EOA:
+      - Privy embedded wallets (already our default for `users-without-wallets`,
+        `web/src/main.tsx:39`) support **session signers / delegated actions**: the user grants
+        finchpad a scoped session once ("trade up to X ETH for the next N minutes/on this token"),
+        after which buys/sells execute with no per-tx prompt. This is the flow that feels like
+        pump.fun / a CEX.
+      - For users on **external** wallets (MetaMask et al.), the equivalent is an ERC-4337 smart
+        account with a session key, or EIP-7702 to give their EOA smart-account powers. Bigger
+        lift; decide whether we support it or just nudge external-wallet users that one-click
+        needs the embedded wallet.
+      - Security must be explicit and bounded: per-session spend cap, expiry, revoke-anytime,
+        and it only ever authorizes swaps on finchpad pools — never arbitrary transfers. This is
+        new drainer surface, so it goes through `/security-review` (see the Phase 5 gate) before
+        shipping. Blind-signing rule still holds: the *grant* screen must show exactly what the
+        session can do.
+- [ ] **Gas sponsorship (optional, stacks on session keys).** A paymaster can cover gas so a
+      buy needs no ETH-for-gas at all — removes the other reason a trade stalls. Only meaningful
+      once smart accounts are in; note it, don't build it yet.
+
+Decision needed from user before building: is one-click **embedded-wallet only** (simplest,
+covers the onboarding-a-new-user case), or do we also invest in session keys for external
+wallets? Recommend embedded-only first.
+
 ## Marketing / distribution — GeckoTerminal DEX/chain listing (added 2026-07-22)
 
 Surfaced via a Discord DM (a launchpad-partnerships contact, "Tim", asked what finchpad offers

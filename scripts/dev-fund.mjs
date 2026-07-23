@@ -37,4 +37,4 @@ try {
 const wei = BigInt(Math.round(amountEth * 1e6)) * 10n ** 12n;
 await rpc("anvil_setBalance", [addr, `0x${wei.toString(16)}`]);
 const balance = BigInt(await rpc("eth_getBalance", [addr, "latest"]));
-console.log(`funded ${addr} -> ${balance / 10n ** 18n} ETH on the fork`);
+console.log(`funded ${addr} -> ${balance / 10n ** 18n} ETH on the fork running at ${RPC}`);
