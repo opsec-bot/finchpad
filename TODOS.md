@@ -177,9 +177,47 @@ mascot/hero/placeholder assets were removed.
       nullable token/token_amount columns). Activity renders "Sent $SYM to @user · N SYM".
       Fixed a migration bug on the way (ALTER used `db.exec` instead of `_db.exec`, silently
       swallowed — existing users.db self-heals on next restart).
-- [ ] Later: lock (separate FinchLock product, deferred); CTO-request FORM (off-chain admin
-      queue — `cto_requests` table exists in schema.sql; needs a request UI + an admin review
-      surface, bigger than the other flows).
+- [ ] Later: lock (separate FinchLock product, deferred). CTO backlogged — see the dedicated
+      section below.
+
+## CTO — Community Take Over (BACKLOGGED 2026-07-23, not built)
+
+**What it is:** when a token's creator abandons it, the community can take over its fee
+rights. On-chain this is `FeeRightsRegistry.approveCTO(token, newController)` — **admin-only**
+(`onlyOwner`) — which calls `locker.setControl(token, newController, newController)`, moving
+both the controller and the fee wallet to the new steward, and emits `CTOApproved`. It's
+blocked while a GitHub binding is unclaimed and still in-window (the fee right belongs to the
+identity, not the admin), allowed after expiry. So CTO is a HUMAN-REVIEWED admin action, not a
+permissionless call — which is exactly why it needs a request+review pipeline, not just a button.
+
+**Why it's bigger than the other write flows:** every other creator action (burn, collect,
+redirect, claim, boost) is either permissionless or gated to an address the contract already
+checks. CTO needs (a) a public REQUEST form, (b) an off-chain REVIEW queue, and (c) an admin
+who executes the on-chain call — three surfaces, plus a trust/anti-abuse story.
+
+**Build plan when picked up:**
+1. **Data** — `cto_requests` already specified in `src/backend/schema.sql` (token, requester,
+   proposed_controller, evidence, status pending/approved/rejected, reviewed_by/at). Mirror it
+   into the SQLite users.db (the live store) with the same idempotent-migration pattern.
+2. **Request API** — `POST /cto` authorized by a WALLET SIGNATURE over {token, proposedController,
+   evidence, timestamp} (reuse the profile-signature pattern in users.js — no sessions). Rate-
+   limit per address; validate the token is finchpad-launched, is NOT an in-window unclaimed
+   GitHub binding (those can't be CTO'd yet — surface why), and proposedController is a real 0x.
+   `GET /cto/:token` lists a token's requests; `GET /cto?status=pending` for the admin queue.
+3. **Request UI** — a "Request take-over" entry on the token page, shown when the token looks
+   abandoned (no recent activity / creator silent) — a modal collecting the proposed controller
+   (default: connected wallet) + an evidence text field (links to the abandoned socials, etc.).
+4. **Admin review surface** — a gated `/admin` route (allowlist by address, or a signed admin
+   check) listing pending requests with approve/reject. **Approve does NOT auto-execute** —
+   admin is a Gnosis Safe per the launch decision (see top of file), so the UI should PREPARE
+   the `approveCTO` Safe transaction (or show the exact `cast send`/Safe payload) rather than
+   sending from a hot key. Reject just updates status + reviewer.
+5. **Anti-abuse / trust** — CTO reassigns a real fee stream, so: evidence is mandatory, requests
+   are public (visible on the token page so the incumbent can contest), and the admin/Safe is
+   the backstop. Note in the UI that CTO is discretionary and human-reviewed, never automatic.
+
+**Gates:** depends on the admin Safe existing on chain 4663 (see LAUNCH DECISIONS) for the
+execute step; the request+queue half can be built and tested before that.
 
 ## Token display — show liquidity (added 2026-07-22)
 
@@ -453,7 +491,8 @@ it cost real debugging time twice in one day.
         glow) and the **top "Boosted" rail** on Explore while STAYING in the organic feed
         (placement adds, never reorders — user's explicit call). Paid-placement labeling kept
         everywhere: paid ≠ vetted.
-  - [ ] Lock / redirect fee wallet / CTO-request — the remaining write flows
+  - [x] Redirect fee wallet — SHIPPED (controller-gated card in TokenActions). Lock (FinchLock,
+        deferred) and CTO-request (backlogged, own section) remain.
   - [ ] No blind-signing anywhere: show exactly what is being signed
   - Build against the local anvil fork — `npm run dev:fork` + `npm run dev:seed` already
     stand up a real chain seeded with 4 tokens (plain, referred, repo-bound, user-bound)
