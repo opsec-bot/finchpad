@@ -253,22 +253,29 @@ DexScreener-style indexing the contracts already emit events for).
       this): README, PLAN.md, `@finchpad` on Twitter/Telegram, `@pickledev` for support
       contact, docs/ folder.
 
-## SAVED FOR LATER — "claim fees" flow (creator-facing, not built)
+## "Claim fees" flow — token-page claim SHIPPED 2026-07-23 (creator menu still later)
 
-The piece that makes GitHub-bound launches usable end to end. Today a creator can only claim
-by having someone hand them a signed payload; there is no menu for it.
+The token-page half is built and wired end to end:
+- **Popup OAuth**: `/auth/github/start?…&mode=popup` → GitHub → callback renders a page that
+  postMessages the signed claim to the opener (origin-locked) and closes. JSON mode unchanged
+  (existing oauth tests untouched).
+- **ClaimFees card** (`web/src/components/ClaimFees.tsx`, token page, shown only while a
+  binding is unclaimed): explains the escrow (amount shown), repo input for repo-bound tokens,
+  "Verify with GitHub" popup, then submits `registry.claimGithub()` from the connected wallet.
+  Friendly pre-checks before gas: verified identity must match the BOUND numeric id, payload
+  must be signed, claimant must equal the connected wallet.
+- **Dev signer provisioned on the fork**: `npm run dev` now deploys the registry with anvil
+  account #9 as `trustedSigner` and gives the API the matching `FINCH_CLAIM_SIGNER_KEY`
+  (publicly-known anvil key, meaningless off-fork; production uses HSM/KMS per the runbook).
+  Also writes `FINCH_CHAIN_ID=<fork id>` so the EIP-712 domain matches the fork.
+- **E2E note**: seeded tokens bind FAKE github ids, so the real browser test is: launch a
+  token bound to YOUR GitHub user via the launch form (resolves the real id), then claim it
+  on the token page. Needs a fresh `npm run dev` (re-seed deploys the signer-enabled registry).
 
-Intended flow:
-1. Sign in to finchpad with GitHub (OAuth already exists, `/auth/github/*`).
-2. finchpad lists every token bound to that account — `GithubBound` is indexed by githubId,
-   so this is a one-topic log query, plus the escrowed amount per token from `escrowOf()`.
-3. "Claim fees to my wallet" per token: backend signs the EIP-712 attestation, the UI submits
-   `claimGithub()`, escrow pays out and the fee wallet becomes theirs.
-4. Same menu shows already-claimed tokens and lets them redirect the fee wallet later.
-
-Notes: the contract binds the NUMERIC id and must keep doing so (a freed username must not
-hand a stranger someone's fee stream). The UI resolves name -> id via `/github/resolve`, which
-is now built. Blocked only on the signer key being provisioned (`FINCH_CLAIM_SIGNER_KEY`).
+Still later (the creator-facing menu): sign in with GitHub → list every token bound to that
+account (`GithubBound` indexed by githubId + `escrowOf()`) → claim each / redirect fee wallet.
+Production gate unchanged: real signer key in HSM/KMS, signer service isolated from the
+public API, GitHub claims disabled at mainnet deploy until the claim flow has outside eyes.
 
 ## ROADMAP (set 2026-07-22, after PR #8 merged)
 
