@@ -84,6 +84,20 @@ function migrate(db) {
       updated_ts  INTEGER NOT NULL DEFAULT (unixepoch())
     );
   `);
+
+  // Column additions land as idempotent ALTERs — SQLite errors when the column exists, which
+  // is exactly the "already migrated" signal.
+  for (const alter of [
+    "ALTER TABLE tokens ADD COLUMN github_kind INTEGER NOT NULL DEFAULT 0",   // 0 none, 1 repo, 2 user
+    "ALTER TABLE tokens ADD COLUMN github_id TEXT NOT NULL DEFAULT ''",       // GitHub's numeric id, as text
+    "ALTER TABLE tokens ADD COLUMN github_claimed INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try {
+      db.exec(alter);
+    } catch {
+      /* column already exists */
+    }
+  }
 }
 
 // --- writes (daemon) --------------------------------------------------------------------
@@ -119,6 +133,31 @@ export function insertReferralPayout(db, r) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(r.blockNumber, r.logIndex, r.token.toLowerCase(), r.referrer.toLowerCase(),
         r.tokenAmount, r.wethAmount, r.ts, r.txHash);
+}
+
+export function setTokenGithubBinding(db, token, { kind, githubId, claimed }) {
+  db.prepare("UPDATE tokens SET github_kind = ?, github_id = ?, github_claimed = ? WHERE address = ?")
+    .run(kind, String(githubId), claimed ? 1 : 0, token.toLowerCase());
+}
+
+export function markGithubClaimed(db, token) {
+  db.prepare("UPDATE tokens SET github_claimed = 1 WHERE address = ?").run(token.toLowerCase());
+}
+
+/** Every unclaimed GitHub-bound token — the claim menu's candidate list. */
+export function listUnclaimedBindings(db) {
+  return db.prepare(
+    `SELECT address, symbol, name, github_kind, github_id
+     FROM tokens WHERE github_kind != 0 AND github_claimed = 0`
+  ).all();
+}
+
+/** All tokens bound to a GitHub identity (claimed or not) — shown in the claim menu. */
+export function listTokensByGithubId(db, githubId) {
+  return db.prepare(
+    `SELECT address, symbol, name, github_kind, github_id, github_claimed
+     FROM tokens WHERE github_id = ? ORDER BY launch_block DESC`
+  ).all(String(githubId));
 }
 
 /** Drop rows at/above a block — called on the re-scan window so reorged-away events vanish. */

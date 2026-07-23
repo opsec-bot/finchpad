@@ -94,6 +94,9 @@ export const BOOSTED = parseAbiItem(
 export const REFERRAL_PAID = parseAbiItem(
   "event ReferralPaid(address indexed token, address indexed referrer, uint256 tokenAmount, uint256 wethAmount)"
 );
+export const GITHUB_CLAIM_SETTLED = parseAbiItem(
+  "event GithubClaimSettled(address indexed token, address indexed claimant, uint256 escrowedTokenPaid, uint256 escrowedWethPaid)"
+);
 
 export const featureBoostAbi = parseAbi([
   "function featuredUntil(address token) view returns (uint64)",

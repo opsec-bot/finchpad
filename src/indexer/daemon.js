@@ -15,8 +15,8 @@
 import { formatEther } from "viem";
 import { publicClient } from "../lib/chain.js";
 import { getLogsChunked } from "../lib/logs.js";
-import { PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, REFERRAL_PAID, finchFactoryAbi, tokenAbi } from "../lib/contracts.js";
-import { openDb, upsertToken, insertSwap, insertReferralPayout, pruneFromBlock, getCursor, setCursor } from "./db.js";
+import { PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, REFERRAL_PAID, GITHUB_CLAIM_SETTLED, finchFactoryAbi, finchLockerAbi, tokenAbi } from "../lib/contracts.js";
+import { openDb, upsertToken, insertSwap, insertReferralPayout, setTokenGithubBinding, markGithubClaimed, pruneFromBlock, getCursor, setCursor } from "./db.js";
 
 const FACTORY = process.env.FINCH_FACTORY;
 if (!FACTORY) {
@@ -49,6 +49,23 @@ const locker = await publicClient
   .catch(() => null);
 
 console.log(`finchpad indexer · factory ${FACTORY} · locker ${locker ?? "n/a"} · db ready`);
+
+// One-time backfill: rows indexed before binding support (github_kind=0) get their binding
+// read now, so the claim menu sees them without waiting for a full re-index.
+if (locker) {
+  const unbound = db.prepare("SELECT address FROM tokens WHERE github_kind = 0").all();
+  let bound = 0;
+  for (const t of unbound) {
+    const b = await publicClient
+      .readContract({ address: locker, abi: finchLockerAbi, functionName: "githubBindingOf", args: [t.address] })
+      .catch(() => null);
+    if (b && Number(b[0]) !== 0) {
+      setTokenGithubBinding(db, t.address, { kind: Number(b[0]), githubId: b[1], claimed: b[2] });
+      bound++;
+    }
+  }
+  if (bound > 0) console.log(`backfilled github bindings for ${bound} token(s)`);
+}
 
 async function pass() {
   const head = await publicClient.getBlockNumber();
@@ -91,6 +108,16 @@ async function pass() {
       launchTx: log.transactionHash,
       initialBuyEth: log.args.initialBuyAmount ? Number(formatEther(log.args.initialBuyAmount)) : 0,
     });
+    // GitHub binding is set at launch and never re-bound, so one read at index time is the
+    // whole story (the claimed flag is kept fresh by the GithubClaimSettled scan below).
+    if (locker) {
+      const b = await publicClient
+        .readContract({ address: locker, abi: finchLockerAbi, functionName: "githubBindingOf", args: [token] })
+        .catch(() => null);
+      if (b && Number(b[0]) !== 0) {
+        setTokenGithubBinding(db, token, { kind: Number(b[0]), githubId: b[1], claimed: b[2] });
+      }
+    }
   }
 
   // 2. swaps — one chunked scan across every known pool (getLogs takes an address array).
@@ -160,12 +187,20 @@ async function pass() {
     }));
   }
 
+  // 3b. claim settlements — flip github_claimed so the claim menu stops offering the token.
+  let settled = [];
+  if (locker) {
+    settled = await getLogsChunked({ address: locker, event: GITHUB_CLAIM_SETTLED, fromBlock: from, toBlock: head, chunkSize: CHUNK })
+      .catch(() => []);
+  }
+
   // 4. commit atomically: prune the re-scan window, insert fresh, advance the cursor.
   db.exec("BEGIN");
   try {
     pruneFromBlock(db, Number(from));
     for (const r of swapRows) insertSwap(db, r);
     for (const r of refRows) insertReferralPayout(db, r);
+    for (const l of settled) markGithubClaimed(db, l.args.token);
     setCursor(db, "main", Number(head));
     db.exec("COMMIT");
   } catch (err) {

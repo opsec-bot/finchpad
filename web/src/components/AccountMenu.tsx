@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrivy, useLinkAccount, useMfaEnrollment } from "@privy-io/react-auth";
-import { Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
+import { BadgeDollarSign, Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ReferralsModal } from "@/components/ReferralsModal";
 import { ProfileSetup } from "@/components/ProfileSetup";
+import { ClaimCenter } from "@/components/ClaimCenter";
 import { useActiveWallet } from "@/components/Wallet";
 import { api } from "@/lib/api";
 import type { Profile } from "@/lib/api";
@@ -30,6 +31,7 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [referralsOpen, setReferralsOpen] = useState(false);
+  const [claimsOpen, setClaimsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   // undefined = not fetched yet (wallet still initializing / request in flight); null = the
   // server said there is no profile. The distinction matters: acting on "undefined" as if it
@@ -127,6 +129,7 @@ export function AccountMenu() {
             <Switch on={blurred} />
           </button>
           <MenuItem icon={Users} label="Referrals" onClick={() => (setOpen(false), setReferralsOpen(true))} />
+          <MenuItem icon={BadgeDollarSign} label="Claim creator fees" onClick={() => (setOpen(false), setClaimsOpen(true))} />
           <div className="my-1 h-px bg-border" />
           <MenuItem icon={LogOut} label="Log out" destructive onClick={() => (setOpen(false), logout())} />
         </div>
@@ -203,6 +206,7 @@ export function AccountMenu() {
       </Modal>
 
       <ReferralsModal open={referralsOpen} onClose={() => setReferralsOpen(false)} username={profile?.username} />
+      <ClaimCenter open={claimsOpen} onClose={() => setClaimsOpen(false)} />
       <ProfileSetup
         open={setupOpen}
         onClose={() => setSetupOpen(false)}

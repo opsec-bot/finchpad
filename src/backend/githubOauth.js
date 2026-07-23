@@ -46,6 +46,9 @@ export function createGithubAuth({
   scope = "",
   fetchImpl = fetch,
   now = Date.now,
+  // Claim-menu support: returns every unclaimed GitHub-bound token
+  // [{address, symbol, name, github_kind, github_id}] — supplied by the API from the indexer.
+  listBindings = null,
 } = {}) {
   const states = new Map();
 
@@ -62,23 +65,31 @@ export function createGithubAuth({
     const q = url.searchParams;
 
     if (url.pathname === "/auth/github/start") {
-      const kind = q.get("kind") || "repo";
-      const token = q.get("token");
+      const mode = q.get("mode") || "json"; // json | popup (single token) | menu (all claimable)
       const claimant = q.get("claimant");
-      const repo = q.get("repo");
-      if (kind !== "repo" && kind !== "user") return { status: 400, body: { error: "kind must be repo or user" } };
-      if (!isAddress(token)) return { status: 400, body: { error: "token must be a 0x address" } };
       if (!isAddress(claimant)) return { status: 400, body: { error: "claimant must be a 0x address" } };
-      if (kind === "repo" && (!repo || !REPO_RE.test(repo))) {
-        return { status: 400, body: { error: "repo claims need repo=owner/name" } };
+
+      let pendingEntry;
+      if (mode === "menu") {
+        // Claim menu: no specific token — the callback discovers everything claimable.
+        pendingEntry = { mode, claimant, popup: true, at: now() };
+      } else {
+        const kind = q.get("kind") || "repo";
+        const token = q.get("token");
+        const repo = q.get("repo");
+        if (kind !== "repo" && kind !== "user") return { status: 400, body: { error: "kind must be repo or user" } };
+        if (!isAddress(token)) return { status: 400, body: { error: "token must be a 0x address" } };
+        if (kind === "repo" && (!repo || !REPO_RE.test(repo))) {
+          return { status: 400, body: { error: "repo claims need repo=owner/name" } };
+        }
+        // mode=popup: the callback renders a page that postMessages the claim back to the
+        // opener window instead of returning raw JSON — the frontend's claim flow.
+        pendingEntry = { mode, kind, token, claimant, repo: kind === "repo" ? repo : null, popup: mode === "popup", at: now() };
       }
 
       prune();
       const state = randomBytes(24).toString("hex");
-      // mode=popup: the callback renders a page that postMessages the claim back to the
-      // opener window instead of returning raw JSON — the frontend's claim flow.
-      const popup = q.get("mode") === "popup";
-      states.set(state, { kind, token, claimant, repo: kind === "repo" ? repo : null, popup, at: now() });
+      states.set(state, pendingEntry);
 
       const authorize = new URL("https://github.com/login/oauth/authorize");
       authorize.searchParams.set("client_id", clientId);
@@ -108,6 +119,67 @@ export function createGithubAuth({
       const ghToken = tokenJson.access_token;
       if (!ghToken) {
         return { status: 502, body: { error: `github token exchange failed: ${tokenJson.error || "no access_token"}` } };
+      }
+
+      // Claim menu: verify the identity once, then sign a claim for EVERY bound token this
+      // account can take — user-bound tokens by id match, repo-bound tokens by a live admin
+      // check on each repo (GitHub resolves numeric ids via /repositories/:id). One OAuth
+      // round-trip instead of one per token.
+      if (pending.mode === "menu") {
+        const userRes = await fetchImpl("https://api.github.com/user", { headers: GH_HEADERS(ghToken) });
+        if (!userRes.ok) return { status: 502, body: { error: `github user lookup failed (${userRes.status})` } };
+        const user = await userRes.json();
+        const userId = assertNumericGithubId(user.id);
+
+        const candidates = listBindings ? await listBindings() : [];
+        const claims = [];
+        for (const c of candidates) {
+          let eligible = false;
+          if (Number(c.github_kind) === CLAIM_KIND.USER) {
+            eligible = String(c.github_id) === String(userId);
+          } else if (Number(c.github_kind) === CLAIM_KIND.REPO) {
+            const repoRes = await fetchImpl(`https://api.github.com/repositories/${c.github_id}`, {
+              headers: GH_HEADERS(ghToken),
+            });
+            if (repoRes.ok) {
+              const info = await repoRes.json();
+              eligible = Boolean(info.permissions?.admin) && String(info.id) === String(c.github_id);
+            }
+          }
+          if (!eligible) continue;
+
+          const deadline = BigInt(Math.floor(now() / 1000) + CLAIM_VALIDITY_SEC);
+          const claim = {
+            registry,
+            chainId,
+            token: c.address,
+            claimKind: Number(c.github_kind),
+            githubId: BigInt(c.github_id),
+            claimant: pending.claimant,
+            deadline,
+          };
+          claims.push({
+            token: c.address,
+            symbol: c.symbol,
+            name: c.name,
+            claimKind: Number(c.github_kind),
+            githubId: String(c.github_id),
+            deadline,
+            signature: registry && signerKey ? await signClaim(claim, signerKey) : null,
+            signed: Boolean(registry && signerKey),
+          });
+        }
+
+        const payload = { identity: user.login, githubId: String(userId), claimant: pending.claimant, claims };
+        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+        const html = `<!doctype html><meta charset="utf-8"><title>finchpad</title>
+<body style="background:#131d24;color:#9fb6b6;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0">
+<p>GitHub verified — returning to finchpad…</p>
+<script>
+  try { window.opener && window.opener.postMessage({ type: "finchpad:github-claims", result: ${json} }, window.location.origin); } catch (e) {}
+  setTimeout(function () { window.close(); }, 400);
+</script></body>`;
+        return { status: 200, html };
       }
 
       let claimKind;

@@ -19,7 +19,7 @@ import { PONS, poolAbi, tokenAbi } from "../lib/contracts.js";
 import { publicClient } from "../lib/chain.js";
 import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
 import { toCandles } from "../lib/ohlc.js";
-import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions } from "../indexer/db.js";
+import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions, listUnclaimedBindings } from "../indexer/db.js";
 import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable } from "./users.js";
 import { createGithubAuth } from "./githubOauth.js";
 
@@ -41,6 +41,12 @@ const githubAuth = createGithubAuth({
   chainId: Number(process.env.FINCH_CHAIN_ID || 4663),
   signerKey: process.env.FINCH_CLAIM_SIGNER_KEY,
   scope: process.env.GITHUB_OAUTH_SCOPE,
+  // Claim menu: every unclaimed GitHub-bound token, from the indexer. getDb is hoisted;
+  // called lazily per request, so daemon startup order doesn't matter.
+  listBindings: async () => {
+    const db = getDb();
+    return db ? listUnclaimedBindings(db) : [];
+  },
 });
 // Defaults to the live pons factory so the API returns real data before finchpad deploys.
 const FACTORY = flag("factory", process.env.FINCH_FACTORY || PONS.activeFactory.address);
