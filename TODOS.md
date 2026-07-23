@@ -65,21 +65,44 @@ mascot/hero/placeholder assets were removed.
       it, add `"sms"` to app `loginMethods`. Tradeoff: lowers signup friction and gives an MFA/
       recovery factor, but adds a phone-number PII surface and SMS cost. Decision pending; not
       added to `loginMethods` yet.
-- [ ] **Username / handle on signup (planned — needs persistence).** After the first email/Google
-      signup, prompt for a sitewide username: either auto-generate a default or let the user type
-      one. Validation: **lowercase `a-z` and `0-9`, underscores allowed only between
-      alphanumerics** — no leading/trailing/consecutive underscores. Regex:
-      `^[a-z0-9]+(?:_[a-z0-9]+)*$` (pick length bounds, e.g. 3–20). The handle drives
-      `/profile/<username>` and the referral link `/r/<username>`, so it must be **unique** —
-      which requires a backend users store (add a `users` table to `src/backend/schema.sql`) and
-      a claim/availability check. Blocked on the R2 persistence layer, same as profiles below.
-      Until then, Privy's DID is the identity and there is no public handle.
-- [ ] **Your profile — stubbed** ("coming soon" toast). Needs the profile pages + the handle above.
-- [ ] **Referrals modal.** Copy fomo's layout: big total earned, "earn X% of your friends'
-      fees" banner, earned-last-7d + friends-referred stats, a copyable `/r/<handle>` link, and
-      a per-referral table (handle, fees earned, volume). Build on the existing on-chain
-      referral system (`ReferralPaid` events / `referrer` in LaunchParams). Needs the R2 indexer
-      for the per-referral fee/volume table. Currently a "coming soon" toast in the menu.
+- [ ] **Username / handle on signup (planned — persistence now exists, needs a users table).**
+      After the first email/Google signup, prompt for a sitewide username: auto-generate a
+      default or let the user type one. TWO distinct fields (user call 2026-07-23):
+      **username** — UNIQUE, the identity in URLs; and **name** — freeform display name, can be
+      anything. Username validation: **lowercase `a-z` and `0-9`, underscores only between
+      alphanumerics** — regex `^[a-z0-9]+(?:_[a-z0-9]+)*$`, length ~3–20, **ASCII-only enforced
+      server-side** (user: "ensure people dont put fonts and shit" — reject any non-ASCII
+      before the regex so unicode "font" letters, homoglyphs, and zero-width characters can
+      never appear in a handle; normalize NFKC then reject if it changed, belt-and-braces).
+      Needs a `users` table (add to SQLite db.js + mirror in schema.sql) keyed by Privy DID,
+      with a claim/availability endpoint.
+- [ ] **Referral links move to usernames** once handles exist: `/r/<username>` resolves the
+      handle → wallet address and lands on the launch form with the referrer bound (today the
+      link is `/?ref=0x…`; keep supporting raw-address links as the fallback).
+- [ ] **Your profile — stubbed** ("coming soon" toast). Needs the profile pages + the handle
+      above. URL shape (user call 2026-07-23, fomo-style): **`/profile/<username>`** — the SPA
+      route + API fallback regex already accept it. Profile features: **profile picture upload**
+      (needs an upload endpoint + storage decision — note the API sits next to a signing key,
+      so uploads should live on a separate service or object storage, NOT a POST route on the
+      signer-adjacent API), **bio** (freeform text), display name, and the portfolio view
+      (positions/PnL — needs per-user holdings from the indexer).
+- [x] **Referrals modal — SHIPPED 2026-07-23** (`web/src/components/ReferralsModal.tsx`, opened
+      from the account menu). fomo layout: headline total earned (USD), "Earn {referralShareBps}%
+      of the fees from every token launched through your link" banner (share read live off the
+      locker), earned-last-7d + tokens-referred stats, copyable link, per-token earnings table.
+      Data = indexed on-chain `ReferralPaid` events via `/referrals/:address`. The link is
+      `/?ref=0x…` and is FUNCTIONAL: the Launch form reads `?ref=` and pre-binds it as
+      `LaunchParams.referrer` (overridable in advanced). Swap to `/r/<handle>` once usernames
+      exist. Figures respect Blur balances.
+- [ ] **SSE live updates (decided over WebSockets, 2026-07-23).** Push new trades / price
+      ticks / launches / stats to the browser instead of polling. Server-Sent Events, NOT WS:
+      data flow is one-directional, SSE runs on the existing zero-dep `node:http` server
+      (a WS lib is exactly the attack surface the backend refuses; hand-rolled WS framing is
+      real code), and EventSource auto-reconnects. Plan: `/events` endpoint fed by the indexer
+      daemon's writes (daemon could notify the API via the DB + a poll of the cursor row, or a
+      local pipe); frontend subscribes on token page (trades/price), explore, and analytics.
+      Indexer→RPC stays polling (cursor+reorg logic is the reliable core; WS subscriptions
+      still need that fallback — revisit only as a prod latency optimization on Alchemy WS).
 - [ ] **Profiles (fomo-style).** Profile page: avatar/banner/bio, following/followers,
       portfolio value + PnL chart (24H/7D/30D/ALL), positions table (avg entry/exit/PnL,
       open/closed), swaps table. Needs wallet identity + the R2 persistence layer (per-user
@@ -88,6 +111,21 @@ mascot/hero/placeholder assets were removed.
 - [ ] **Deposit on chain 4663.** `useFundWallet` opens Privy's funding modal but Privy's
       on-ramp providers may not support Robinhood Chain; the button catches and toasts if so.
       Revisit once we know what funding path works (bridge vs direct).
+- [x] **First-visit disclaimer gate — SHIPPED 2026-07-23** (`DisclaimerGate.tsx`): "Before you
+      continue" overlay — unaudited/third-party-tokens/at-your-own-risk copy, checkbox with a
+      hyperlink to `/terms`, Continue disabled until checked. Not dismissible any other way;
+      localStorage-versioned key so a changed disclaimer re-prompts. `/terms` page shipped too
+      (`routes/Terms.tsx`) — **content pending real legal review** (Phase 5 legal gate).
+- [x] **Search + Oldest filter — SHIPPED** (Explore): search box filters by name, symbol, or
+      contract address; "Oldest" added to the sort tabs.
+- [x] **Footer — SHIPPED** (`Footer.tsx`): FontAwesome brand icons — X + Telegram (both
+      @finchpad) + GitHub — plus a Terms link and the standing risk note.
+- [x] **New fonts — SHIPPED**: Geist for UI text (replacing Inter), Space Grotesk for display
+      headings/brand (h1s + `.display`).
+- [x] **Real URLs — SHIPPED**: history-API routing without a router dep. Token pages live at
+      **`/tokens/robinhood/<address>`** (user call, DexScreener-style chain-scoped), plus
+      `/launch`, `/analytics`, `/terms`; API serves the app shell for these paths (SPA
+      fallback) so deep links and refreshes work. `?ref=` survives navigation.
 
 ## Token display — show liquidity (added 2026-07-22)
 
@@ -327,14 +365,28 @@ it cost real debugging time twice in one day.
     stand up a real chain seeded with 4 tokens (plain, referred, repo-bound, user-bound)
     plus a featured and a boosted one. There is no live testnet (no Uniswap on RH testnet).
 
-**R2. Persistence — the hard prerequisite for the analytics dashboard.** The API reads live
-off-chain with a TTL cache and no database. That cannot back historical analytics: Alchemy's
-free tier caps `eth_getLogs` at 10 blocks, and the public RPC now serves Cloudflare
-challenges to datacenter IPs (this is what broke CI fork tests). `src/backend/schema.sql`
-exists but nothing writes to it.
-  - [ ] Indexer daemon that writes tokens/launches/swaps/holders/ohlc/fee_claims to Postgres
-  - [ ] Reorg handling + resumable cursor
-  - [ ] Switch API handlers from live reads to SQL (response shapes must not change)
+**R2. Persistence — SHIPPED 2026-07-23 (SQLite; Postgres later).** Indexer daemon
+(`src/indexer/daemon.js`) tails launches (both event shapes), swaps (normalized, with
+`trader` = tx.from for real trader counts) and `ReferralPaid` payouts into SQLite
+(`src/indexer/db.js`, `data/finchpad.db`) via Node's built-in `node:sqlite` — chosen over
+Postgres to keep the backend zero-dependency next to the signing key.
+**User call 2026-07-23: migrate to Postgres later** (multi-service/scale); `schema.sql`
+remains the target shape for that migration — keep it in sync when the SQLite schema changes.
+  - [x] Daemon: resumable cursor, 30-block reorg overlap with prune+reinsert (PK-deduped),
+        atomic per-pass transactions, `--once` mode, spawned by `npm run dev` (DB wiped on
+        re-seed so a fresh deployment never serves stale rows). `npm run index:daemon` alone.
+  - [x] API switched to DB-backed reads with live fallback when no DB exists: `/tokens` is
+        now ALL-TIME (not block-windowed), `/tokens/:a/trades` + `/candles` from swaps.
+        Response shapes unchanged. New: **`/stats`** (all-time + 24h volume/trades/traders,
+        tokens launched, combined mcap + locked liquidity cached 2min) and
+        **`/referrals/:address`** (total/7d WETH + per-token earnings — the referrals modal's
+        data source, ready to build on).
+  - [x] **Analytics page shipped** (`web/src/routes/Analytics.tsx`, nav tab): 7 tiles modeled
+        on the PotatoPad reference — volume all-time/24h, tokens launched (+traded 24h),
+        trades all-time, traders 24h, combined market cap, liquidity locked — all from our
+        own indexer, no GeckoTerminal dependency. Auto-refreshes every 30s.
+  - [ ] Holders/concentration + fee_claims tables (schema.sql has the shapes; not wired yet)
+  - [ ] Postgres migration when scaling beyond one service (user call, see above)
 
 **R3. Analytics dashboard.** Depends on R2. The events to build on already exist and are
 indexed by design: `Launched`, `Swap`, `FeesCollected`, `ReferralPaid`, `Graduated`,
@@ -475,7 +527,19 @@ the referrer amounts, unused-return in markGraduated).
 - [x] PR #1 security fixes ported to master (XSS escapes incl. error messages, API param
       clamps); PR closed. Dependabot #2/#4/#5 merged, #3 applied manually (conflict).
 - [x] Wallet connect (Privy), launch flow, and the full trading experience — all shipped.
-- [ ] Remaining flows: lock, burn, CTO request, and the creator-facing claim-fees menu.
+- [x] **Burn + Collect fees — SHIPPED** (`web/src/components/TokenActions.tsx`, on the token
+      page). Burn: any holder destroys their own tokens (`erc20.burn`), gated to when you hold a
+      balance. Collect fees: permissionless `locker.collect(token)` — banks accrued fees to the
+      fee wallet and advances graduation, shown for finchpad-launched tokens. Both go through the
+      embedded wallet (one-click + MFA). UI/gating/build verified; execution pending a user test
+      (MFA blocks automated testing).
+- [ ] Remaining write flows: **claim-fees menu**, **redirect fee wallet**, lock, CTO request.
+      - Claim-fees is more blocked than it looked: the `/auth/github/callback` returns raw JSON,
+        so a popup flow needs postMessage/redirect-back wiring, AND `FINCH_CLAIM_SIGNER_KEY` is
+        unprovisioned (`signed:false` in dev) so `claimGithub()` can't be submitted for real yet.
+        Contract call + ABI (`feeRightsRegistry.claimGithub`) are ready; blocked on those two.
+      - Redirect fee wallet (`redirectFees(token, newFeeWallet)`) is controller-only and
+        unblocked — a good next addition to TokenActions once we read `controllerOf`.
 
 ## Needs the user (blocking next steps)
 
