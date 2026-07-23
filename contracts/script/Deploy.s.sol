@@ -40,8 +40,7 @@ import {FeatureBoost} from "../src/FeatureBoost.sol";
  *   FINCH_GRAD_FEE_THRESHOLD  lifetime collected WETH fees that count as graduated, wei
  *                             (default 0.25 ether ~= 25 ETH of cumulative buy volume at the
  *                             1% tier). Set very high to disable the graduation discount.
- *   FINCH_FEATURE_PRICE       FeatureBoost price per featured day, wei (default 0.01 ether)
- *   FINCH_BOOST_PRICE         FeatureBoost one-time "boosted"-badge price, wei (default 0.05 ether)
+ *   FINCH_BOOST_PRICE_PER_HOUR FeatureBoost price per boost-hour, wei (default 0.001 ether)
  *
  * Mainnet periphery (from docs, chain 4663):
  *   position manager 0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3
@@ -65,8 +64,6 @@ contract Deploy is Script {
         uint16 referralBps = uint16(vm.envOr("FINCH_REFERRAL_BPS", uint256(1000)));
         uint16 gradBonusBps = uint16(vm.envOr("FINCH_GRAD_BONUS_BPS", uint256(500)));
         uint256 gradFeeThreshold = vm.envOr("FINCH_GRAD_FEE_THRESHOLD", uint256(0.25 ether));
-        uint256 featurePrice = vm.envOr("FINCH_FEATURE_PRICE", uint256(0.01 ether));
-        uint256 boostPrice = vm.envOr("FINCH_BOOST_PRICE", uint256(0.05 ether));
 
         if (pk != 0) vm.startBroadcast(pk);
         else vm.startBroadcast(deployer); // forge routes signing to the Ledger for this address
@@ -78,7 +75,9 @@ contract Deploy is Script {
             new FinchLocker(address(factory), positionManager, weth, protocolRecipient, admin, referralBps, gradBonusBps, gradFeeThreshold);
         FeeRightsRegistry registry = new FeeRightsRegistry(address(locker), githubSigner, admin);
         FinchLock lockVault = new FinchLock();
-        FeatureBoost featureBoost = new FeatureBoost(feeRecipient, admin, featurePrice, boostPrice);
+        // Env read inlined: one more live local here tips via-IR into stack-too-deep.
+        FeatureBoost featureBoost =
+            new FeatureBoost(feeRecipient, admin, vm.envOr("FINCH_BOOST_PRICE_PER_HOUR", uint256(0.001 ether)));
 
         // Wiring (requires admin == deployer; hand off admin afterward if desired).
         require(admin == deployer, "set FINCH_ADMIN to the deployer for one-shot wiring, or wire manually");

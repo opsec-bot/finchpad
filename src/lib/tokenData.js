@@ -5,8 +5,8 @@ import { formatEther } from "viem";
 import { publicClient } from "./chain.js";
 import { getLogsChunked } from "./logs.js";
 import {
-  PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, FEATURED,
-  factoryAbi, finchFactoryAbi, finchLockerAbi, poolAbi, positionManagerAbi, tokenAbi,
+  PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, BOOSTED,
+  factoryAbi, featureBoostAbi, finchFactoryAbi, finchLockerAbi, poolAbi, positionManagerAbi, tokenAbi,
 } from "./contracts.js";
 import { toCandles } from "./ohlc.js";
 
@@ -133,6 +133,18 @@ export async function getTokenDetail(token, factoryAddress) {
   const initialTokens = initialSupply !== null ? Number(formatEther(initialSupply)) : null;
   const burnedTokens = initialTokens !== null ? Math.max(0, initialTokens - supplyTokens) : null;
 
+  // Paid placement state. "Boosted" is PAID, time-boxed and stacking — never vetting; every
+  // surface that renders it must label it as paid placement. Falsy without FeatureBoost config.
+  const featureBoost = process.env.FINCH_FEATURE_BOOST || null;
+  let boostedUntil = 0;
+  if (featureBoost) {
+    const until = await publicClient
+      .readContract({ address: featureBoost, abi: featureBoostAbi, functionName: "boostedUntil", args: [token] })
+      .catch(() => 0n);
+    boostedUntil = Number(until);
+  }
+  const boosted = boostedUntil * 1000 > Date.now();
+
   return {
     address: token,
     name,
@@ -147,6 +159,8 @@ export async function getTokenDetail(token, factoryAddress) {
     priceWeth,
     marketCapWeth: priceWeth * supplyTokens,
     liquidityWeth: Number(formatEther(wethInPool)),
+    boosted,
+    boostedUntil,
     knownToFactory: known,
     deployer: known ? launched.deployer : null,
     poolFee: known ? Number(launched.poolFee) : null,
@@ -292,6 +306,6 @@ export async function getFeatured({ featureBoost, blocks = 50_000n, chunkSize = 
   if (!featureBoost) return [];
   const latest = await publicClient.getBlockNumber();
   const fromBlock = floorBlock(latest > blocks ? latest - blocks : 0n);
-  const logs = await getLogsChunked({ address: featureBoost, event: FEATURED, fromBlock, toBlock: latest, chunkSize });
+  const logs = await getLogsChunked({ address: featureBoost, event: BOOSTED, fromBlock, toBlock: latest, chunkSize });
   return activeFeatured(logs, Math.floor(Date.now() / 1000));
 }

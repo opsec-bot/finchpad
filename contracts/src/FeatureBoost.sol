@@ -5,12 +5,17 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 /**
  * @title FeatureBoost
- * @notice Paid promotion for launched tokens: pay ETH to feature a token in the finchpad UI
- *         for a number of days, or pay a one-time fee for a permanent "boosted" badge. This
- *         is pure
- *         advertising revenue — it never touches trading fees, fee splits, or who controls a
- *         token. Ranking is off-chain: the indexer reads the `Featured`/`Boosted` events and
- *         the `featuredUntil`/`boosted` mappings, and the frontend surfaces active ones.
+ * @notice Paid promotion for launched tokens — ONE product: pay ETH to "boost" a token for a
+ *         number of hours. Boosted tokens get a badge, a highlighted card, and top-rail
+ *         placement in the finchpad UI (while also remaining in the organic feed — placement
+ *         adds, never reorders). Buying more hours while boosted EXTENDS the window, so boosts
+ *         stack. This is pure advertising revenue — it never touches trading fees, fee splits,
+ *         or who controls a token. Ranking is off-chain: the indexer reads `Boosted` events and
+ *         the `boostedUntil` mapping, and the frontend surfaces active ones.
+ *
+ *         (v1 sold day-based "featuring" plus a separate permanent badge; both collapsed into
+ *         this single hour-based product before first deployment. Contract name kept to avoid
+ *         churn in deploy tooling.)
  *
  * Naming: the badge is "boosted", never "verified". It is bought, not earned — anyone can
  * buy it for any token, including their own. Calling it verified would read to users as
@@ -19,33 +24,32 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
  * Deliberately standalone: it is NOT wired into the factory or locker, so it can ship (and be
  * priced/retired) without any risk to the fee-collection path.
  *
- * Regulatory posture: selling ad placement and a badge is ordinary commerce. It pays nobody a
- * share of protocol revenue, so it carries none of the dividend/security questions that a
- * fee-share or staking design would.
+ * Regulatory posture: selling ad placement is ordinary commerce. It pays nobody a share of
+ * protocol revenue, so it carries none of the dividend/security questions that a fee-share or
+ * staking design would.
  *
  * `feeRecipient` is immutable, on purpose: a compromised admin can change the price but can
  * never redirect the money. Point it at a multisig/splitter if the destination must rotate.
  */
 contract FeatureBoost is ReentrancyGuard {
+    /// @dev Sanity cap: nobody can buy (or fat-finger) more than 30 days of boost at once.
+    uint32 public constant MAX_HOURS = 720;
+
     address public immutable feeRecipient;
     address public admin;
-    uint256 public pricePerDay;
-    uint256 public boostPrice;
+    uint256 public pricePerHour;
 
-    /// @notice Unix timestamp a token is featured until. Featured iff this is in the future.
-    mapping(address token => uint64 until) public featuredUntil;
-    /// @notice One-time paid "boosted" badge. Once true, stays true.
-    mapping(address token => bool isBoosted) public boosted;
+    /// @notice Unix timestamp a token is boosted until. Boosted iff this is in the future.
+    mapping(address token => uint64 until) public boostedUntil;
 
-    event Featured(address indexed token, address indexed payer, uint64 until, uint256 paid);
-    event Boosted(address indexed token, address indexed payer, uint256 paid);
-    event PriceChanged(uint256 pricePerDay, uint256 boostPrice);
+    event Boosted(address indexed token, address indexed payer, uint64 until, uint256 paid);
+    event PriceChanged(uint256 pricePerHour);
     event AdminChanged(address indexed admin);
 
     error ZeroAddress();
-    error ZeroDays();
+    error ZeroHours();
+    error TooManyHours();
     error InsufficientPayment();
-    error AlreadyBoosted();
     error NotAdmin();
     error PayoutFailed();
     error RefundFailed();
@@ -55,47 +59,35 @@ contract FeatureBoost is ReentrancyGuard {
         _;
     }
 
-    constructor(address feeRecipient_, address admin_, uint256 pricePerDay_, uint256 boostPrice_) {
+    constructor(address feeRecipient_, address admin_, uint256 pricePerHour_) {
         if (feeRecipient_ == address(0) || admin_ == address(0)) revert ZeroAddress();
         feeRecipient = feeRecipient_;
         admin = admin_;
-        pricePerDay = pricePerDay_;
-        boostPrice = boostPrice_;
+        pricePerHour = pricePerHour_;
     }
 
     /**
-     * @notice Feature `token` for `daysCount` days. Extends any existing window rather than
-     *         overwriting it, so buying more days always adds time. Overpayment is refunded.
+     * @notice Boost `token` for `numHours` hours. Extends any active window rather than
+     *         overwriting it, so buying more hours always adds time. Overpayment is refunded.
      */
-    function feature(address token, uint32 daysCount) external payable nonReentrant {
+    function boost(address token, uint32 numHours) external payable nonReentrant {
         if (token == address(0)) revert ZeroAddress();
-        if (daysCount == 0) revert ZeroDays();
-        uint256 cost = pricePerDay * daysCount;
+        if (numHours == 0) revert ZeroHours();
+        if (numHours > MAX_HOURS) revert TooManyHours();
+        uint256 cost = pricePerHour * numHours;
         if (msg.value < cost) revert InsufficientPayment();
 
-        uint64 base = featuredUntil[token] > block.timestamp ? featuredUntil[token] : uint64(block.timestamp);
-        uint64 newUntil = base + uint64(daysCount) * 1 days;
-        featuredUntil[token] = newUntil;
+        uint64 base = boostedUntil[token] > block.timestamp ? boostedUntil[token] : uint64(block.timestamp);
+        uint64 newUntil = base + uint64(numHours) * 1 hours;
+        boostedUntil[token] = newUntil;
 
         _settle(cost);
-        emit Featured(token, msg.sender, newUntil, cost);
+        emit Boosted(token, msg.sender, newUntil, cost);
     }
 
-    /// @notice One-time paid "boosted" badge for `token`. Overpayment is refunded.
-    function boost(address token) external payable nonReentrant {
-        if (token == address(0)) revert ZeroAddress();
-        if (boosted[token]) revert AlreadyBoosted();
-        if (msg.value < boostPrice) revert InsufficientPayment();
-
-        boosted[token] = true;
-
-        _settle(boostPrice);
-        emit Boosted(token, msg.sender, boostPrice);
-    }
-
-    /// @notice True iff the token's featured window has not yet elapsed.
-    function isFeatured(address token) external view returns (bool) {
-        return featuredUntil[token] > block.timestamp;
+    /// @notice True iff the token's boost window has not yet elapsed.
+    function isBoosted(address token) external view returns (bool) {
+        return boostedUntil[token] > block.timestamp;
     }
 
     /// @dev Forward exactly `cost` to the fee recipient and refund any overpayment. Forwarding
@@ -112,10 +104,9 @@ contract FeatureBoost is ReentrancyGuard {
 
     // --- admin ---
 
-    function setPrices(uint256 pricePerDay_, uint256 boostPrice_) external onlyAdmin {
-        pricePerDay = pricePerDay_;
-        boostPrice = boostPrice_;
-        emit PriceChanged(pricePerDay_, boostPrice_);
+    function setPrice(uint256 pricePerHour_) external onlyAdmin {
+        pricePerHour = pricePerHour_;
+        emit PriceChanged(pricePerHour_);
     }
 
     function setAdmin(address admin_) external onlyAdmin {

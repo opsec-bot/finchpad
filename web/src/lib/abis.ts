@@ -42,6 +42,13 @@ export const swapRouterAbi = parseAbi([
   "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
 ]);
 
+export const featureBoostAbi = parseAbi([
+  "function pricePerHour() view returns (uint256)",
+  "function boostedUntil(address token) view returns (uint64)",
+  "function isBoosted(address token) view returns (bool)",
+  "function boost(address token, uint32 numHours) payable",
+]);
+
 export const wethAbi = parseAbi([
   "function deposit() payable",
   "function balanceOf(address) view returns (uint256)",

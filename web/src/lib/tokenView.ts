@@ -18,6 +18,8 @@ export interface TokenView {
   graduated: boolean;
   graduationProgress: number;
   githubVerified: boolean;
+  /** Active paid boost — badge + highlighted card + top rail (and still in the organic feed). */
+  boosted: boolean;
   knownToFactory: boolean;
   block: number;
 }
@@ -36,6 +38,7 @@ export function buildTokenView(summary: TokenSummary, detail: TokenDetail, candl
     graduated: detail.graduation?.graduated ?? false,
     graduationProgress: detail.graduation?.progress ?? 0,
     githubVerified: Boolean(detail.github?.claimed),
+    boosted: (detail.boostedUntil ?? 0) * 1000 > Date.now(),
     knownToFactory: detail.knownToFactory,
     block: summary.block,
   };

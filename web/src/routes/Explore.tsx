@@ -178,11 +178,30 @@ export default function Explore({ onSelect }: { onSelect: (address: string) => v
       )}
 
       {views && views.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sorted.map((token) => (
-            <TokenCard key={token.address} token={token} onSelect={onSelect} />
-          ))}
-        </div>
+        <>
+          {/* Boosted rail — PAID placement, and it says so. Boosted tokens appear here AND in
+              the organic feed below (placement adds, never reorders), so ranking stays honest. */}
+          {!query && views.some((t) => t.boosted) && (
+            <div className="mb-4">
+              <div className="mb-2 flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold">Boosted</h2>
+                <span className="text-[11px] text-muted-foreground">paid placement — not an endorsement</span>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {views
+                  .filter((t) => t.boosted)
+                  .map((token) => (
+                    <TokenCard key={`b-${token.address}`} token={token} onSelect={onSelect} />
+                  ))}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {sorted.map((token) => (
+              <TokenCard key={token.address} token={token} onSelect={onSelect} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

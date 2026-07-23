@@ -84,12 +84,10 @@ export const finchLockerAbi = parseAbi([
   "function graduationBonusBps() view returns (uint16)",
 ]);
 
-// FeatureBoost: paid featured placement + "boosted" badges. Off-chain ranking reads these.
-export const FEATURED = parseAbiItem(
-  "event Featured(address indexed token, address indexed payer, uint64 until, uint256 paid)"
-);
+// FeatureBoost: paid time-boxed "boost" placement (one product; hour-priced, stacking).
+// Off-chain ranking reads this event + the boostedUntil mapping.
 export const BOOSTED = parseAbiItem(
-  "event Boosted(address indexed token, address indexed payer, uint256 paid)"
+  "event Boosted(address indexed token, address indexed payer, uint64 until, uint256 paid)"
 );
 export const REFERRAL_PAID = parseAbiItem(
   "event ReferralPaid(address indexed token, address indexed referrer, uint256 tokenAmount, uint256 wethAmount)"
@@ -99,13 +97,10 @@ export const GITHUB_CLAIM_SETTLED = parseAbiItem(
 );
 
 export const featureBoostAbi = parseAbi([
-  "function featuredUntil(address token) view returns (uint64)",
-  "function boosted(address token) view returns (bool)",
-  "function isFeatured(address token) view returns (bool)",
-  "function pricePerDay() view returns (uint256)",
-  "function boostPrice() view returns (uint256)",
-  "function feature(address token, uint32 daysCount) payable",
-  "function boost(address token) payable",
+  "function boostedUntil(address token) view returns (uint64)",
+  "function isBoosted(address token) view returns (bool)",
+  "function pricePerHour() view returns (uint256)",
+  "function boost(address token, uint32 numHours) payable",
 ]);
 
 export const lockerAbi = parseAbi([

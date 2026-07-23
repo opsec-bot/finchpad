@@ -64,7 +64,7 @@ contract SeedLocal is Script {
         // API. Falls back to the deployer (claims unusable, harmless) when unset.
         registry = new FeeRightsRegistry(address(locker), vm.envOr("FINCH_GITHUB_SIGNER", me), me);
         lockVault = new FinchLock();
-        featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);
+        featureBoost = new FeatureBoost(me, me, 0.001 ether); // price per boost-hour
         factory.setLocker(address(locker));
         locker.setRegistry(address(registry));
 
@@ -84,9 +84,9 @@ contract SeedLocal is Script {
         _buy(d, 0.02 ether);
         _buy(a, 0.25 ether); // second trade so charts have more than one candle point
 
-        // Advertising: feature GENESIS for 7 days and buy DFINCH a "boosted" badge.
-        featureBoost.feature{value: 0.07 ether}(a, 7);
-        featureBoost.boost{value: 0.05 ether}(b);
+        // Advertising: boost GENESIS for 24h and DFINCH for 6h, so the rail and badges render.
+        featureBoost.boost{value: 0.024 ether}(a, 24);
+        featureBoost.boost{value: 0.006 ether}(b, 6);
 
         vm.stopBroadcast();
 

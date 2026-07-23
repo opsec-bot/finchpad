@@ -1,4 +1,4 @@
-import { BadgeCheck, GraduationCap } from "lucide-react";
+import { BadgeCheck, GraduationCap, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import TokenAvatar from "@/components/TokenAvatar";
@@ -15,7 +15,14 @@ export default function TokenCard({ token, onSelect }: { token: TokenView; onSel
 
   return (
     <button type="button" onClick={() => onSelect(token.address)} className="group block w-full text-left">
-      <Card className="lift gap-0 overflow-hidden p-0 group-hover:border-primary/40">
+      <Card
+        className={
+          token.boosted
+            ? // Boosted: unmistakably highlighted — tinted surface, bright border, soft glow.
+              "lift gap-0 overflow-hidden p-0 border-highlight/50 bg-highlight/[0.05] shadow-[0_0_20px_-6px] shadow-highlight/25 group-hover:border-highlight/70"
+            : "lift gap-0 overflow-hidden p-0 group-hover:border-primary/40"
+        }
+      >
         <div className="flex items-start gap-3 p-4">
           <TokenAvatar src={token.logo} symbol={token.symbol} size="lg" className="size-12 rounded-lg" />
 
@@ -29,12 +36,24 @@ export default function TokenCard({ token, onSelect }: { token: TokenView; onSel
             <p className="tnum font-mono text-xs text-muted-foreground">${token.symbol}</p>
           </div>
 
-          {token.graduated && (
-            <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
-              <GraduationCap className="size-3" aria-hidden />
-              Graduated
-            </Badge>
-          )}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {token.graduated && (
+              <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
+                <GraduationCap className="size-3" aria-hidden />
+                Graduated
+              </Badge>
+            )}
+            {token.boosted && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-highlight/40 text-highlight"
+                title="Paid placement — not vetted or endorsed by finchpad"
+              >
+                <Zap className="size-3" aria-hidden />
+                Boosted
+              </Badge>
+            )}
+          </div>
         </div>
 
         <div className="flex items-end justify-between gap-3 px-4">

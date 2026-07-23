@@ -34,6 +34,10 @@ export interface TokenDetail {
   priceWeth: number;
   marketCapWeth: number;
   liquidityWeth: number;
+  /** Paid placement — purchased, time-boxed, stacking. Not vetting; label as paid. */
+  boosted: boolean;
+  /** Unix seconds until which the token is boosted; 0/past = not boosted. */
+  boostedUntil: number;
   knownToFactory: boolean;
   deployer: `0x${string}` | null;
   feeWallet: `0x${string}` | null;
