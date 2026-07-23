@@ -4,6 +4,7 @@ import { Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lu
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { ReferralsModal } from "@/components/ReferralsModal";
 import { useActiveWallet } from "@/components/Wallet";
 import { useBlurBalances } from "@/lib/blurBalances";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function AccountMenu() {
   const { blurred, toggle } = useBlurBalances();
   const [open, setOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
+  const [referralsOpen, setReferralsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export function AccountMenu() {
             <span className="flex-1 text-left">Blur balances</span>
             <Switch on={blurred} />
           </button>
-          <MenuItem icon={Users} label="Referrals" onClick={() => (setOpen(false), toast("Referrals are coming soon."))} />
+          <MenuItem icon={Users} label="Referrals" onClick={() => (setOpen(false), setReferralsOpen(true))} />
           <div className="my-1 h-px bg-border" />
           <MenuItem icon={LogOut} label="Log out" destructive onClick={() => (setOpen(false), logout())} />
         </div>
@@ -148,6 +150,8 @@ export function AccountMenu() {
           </div>
         </div>
       </Modal>
+
+      <ReferralsModal open={referralsOpen} onClose={() => setReferralsOpen(false)} />
     </div>
   );
 }

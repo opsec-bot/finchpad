@@ -22,6 +22,8 @@ export default defineConfig({
       "/health": "http://localhost:8787",
       "/auth": "http://localhost:8787",
       "/github": "http://localhost:8787",
+      "/stats": "http://localhost:8787",
+      "/referrals": "http://localhost:8787",
     },
   },
 });

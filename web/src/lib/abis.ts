@@ -15,6 +15,7 @@ export const finchFactoryAbi = parseAbi([
 
 export const finchLockerAbi = parseAbi([
   "function collect(address token)",
+  "function referralShareBps() view returns (uint16)",
   "function escrowOf(address token) view returns (uint256 escrowedToken, uint256 escrowedWeth, uint64 escrowDeadline)",
   "function graduationOf(address token) view returns (uint256 lifetimeWethFees, uint256 threshold, bool graduated)",
   "function githubBindingOf(address token) view returns (uint8 kind, uint256 githubId, bool claimed)",

@@ -51,19 +51,25 @@ export default function Launch({
   const wallet = useActiveWallet();
   const ethUsd = useEthUsd();
 
-  const [f, setF] = useState({
-    name: "",
-    symbol: "",
-    logo: "",
-    description: "",
-    twitter: "",
-    telegram: "",
-    website: "",
-    bind: "none" as Bind,
-    githubHandle: "",
-    referrer: "",
-    feeWallet: "",
-    creatorBuy: "",
+  const [f, setF] = useState(() => {
+    // Referral links carry ?ref=0x… (see ReferralsModal). Arriving through one binds that
+    // address as the launch's referrer — on-chain, via LaunchParams.referrer — unless the
+    // creator overrides it in the advanced menu.
+    const ref = new URLSearchParams(window.location.search).get("ref") ?? "";
+    return {
+      name: "",
+      symbol: "",
+      logo: "",
+      description: "",
+      twitter: "",
+      telegram: "",
+      website: "",
+      bind: "none" as Bind,
+      githubHandle: "",
+      referrer: /^0x[a-fA-F0-9]{40}$/.test(ref) ? ref : "",
+      feeWallet: "",
+      creatorBuy: "",
+    };
   });
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [githubId, setGithubId] = useState<string | null>(null);
