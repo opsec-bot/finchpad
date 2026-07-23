@@ -12,6 +12,7 @@ export interface TokenView {
   symbol: string;
   logo: string | null;
   marketCapWeth: number;
+  liquidityWeth: number;
   change24h: number;
   sparkline: number[];
   graduated: boolean;
@@ -29,6 +30,7 @@ export function buildTokenView(summary: TokenSummary, detail: TokenDetail, candl
     symbol: detail.symbol,
     logo: detail.logo,
     marketCapWeth: detail.marketCapWeth,
+    liquidityWeth: detail.liquidityWeth,
     change24h: change24h(candles),
     sparkline: sparkline(candles),
     graduated: detail.graduation?.graduated ?? false,

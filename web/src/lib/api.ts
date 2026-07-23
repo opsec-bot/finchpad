@@ -30,6 +30,7 @@ export interface TokenDetail {
   tokenIsToken0: boolean;
   priceWeth: number;
   marketCapWeth: number;
+  liquidityWeth: number;
   knownToFactory: boolean;
   deployer: `0x${string}` | null;
   feeWallet: `0x${string}` | null;

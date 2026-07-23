@@ -54,6 +54,7 @@ export const tokenAbi = parseAbi([
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
   "function totalSupply() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
   "function logo() view returns (string)",
   "function description() view returns (string)",
   "function liquidityPool() view returns (address)",

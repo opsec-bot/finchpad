@@ -41,8 +41,14 @@ export async function getTokenDetail(token, factoryAddress) {
 
   const tokenIsToken0 = token.toLowerCase() < PONS.weth.toLowerCase();
 
-  const [slot0, ponsLaunched, graduation] = await Promise.all([
+  const [slot0, wethInPool, ponsLaunched, graduation] = await Promise.all([
     publicClient.readContract({ address: pool, abi: poolAbi, functionName: "slot0" }),
+    // WETH sitting in the pool = the ETH liquidity a trader can actually sell into. For a
+    // single-sided launch this is the honest "how deep is it" number, and it can't be faked by
+    // donating tokens. Non-fatal: fall back to 0 rather than failing the whole detail read.
+    publicClient
+      .readContract({ address: PONS.weth, abi: tokenAbi, functionName: "balanceOf", args: [pool] })
+      .catch(() => 0n),
     publicClient
       .readContract({ address: factoryAddress, abi: factoryAbi, functionName: "getLaunchedToken", args: [token] })
       .catch(() => null),
@@ -103,6 +109,7 @@ export async function getTokenDetail(token, factoryAddress) {
     tokenIsToken0,
     priceWeth,
     marketCapWeth: priceWeth * supplyTokens,
+    liquidityWeth: Number(formatEther(wethInPool)),
     knownToFactory: known,
     deployer: known ? launched.deployer : null,
     poolFee: known ? Number(launched.poolFee) : null,

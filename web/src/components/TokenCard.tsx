@@ -43,7 +43,17 @@ export default function TokenCard({ token, onSelect }: { token: TokenView; onSel
             <p className="tnum text-2xl font-semibold leading-tight">
               {ethUsd ? usd(token.marketCapWeth * ethUsd) : `${token.marketCapWeth.toFixed(3)} Ξ`}
             </p>
-            <ChangeValue value={token.change24h} showIcon className="mt-0.5 text-sm" />
+            <div className="mt-0.5 flex items-center gap-2 text-sm">
+              <ChangeValue value={token.change24h} showIcon />
+              <span className="tnum text-xs text-muted-foreground">
+                Liq{" "}
+                {Number.isFinite(token.liquidityWeth)
+                  ? ethUsd
+                    ? usd(token.liquidityWeth * ethUsd)
+                    : `${token.liquidityWeth.toFixed(3)} Ξ`
+                  : "—"}
+              </span>
+            </div>
           </div>
           <Sparkline data={token.sparkline} positive={positive} className="mb-1 shrink-0" />
         </div>
