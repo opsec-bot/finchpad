@@ -169,9 +169,17 @@ mascot/hero/placeholder assets were removed.
       succeeded and was SENT BY the attributed actor (tx.from) before inserting into an
       `actions` table — self-attested but chain-verified, so nobody can claim another's action.
       Merged into `/ledger` and rendered on the Activity page with per-type icons.
-- [ ] Later: per-token sends (SendModal is ETH only); lock (separate FinchLock product,
-      deferred); CTO-request FORM (off-chain admin queue — `cto_requests` table exists in
-      schema.sql; needs a request UI + an admin review surface, bigger than the other flows).
+- [x] **Per-token sends — SHIPPED 2026-07-23.** SendModal gained an asset selector (ETH +
+      every indexed token the wallet holds, from `GET /holdings/:address`). ETH keeps the
+      USD⇄ETH toggle; tokens send via `erc20.transfer` in token units. Ledger records token
+      sends trustlessly: client posts {txHash, token}, server decodes the token's ERC-20
+      Transfer log where `from == tx.from` and stores to/amount (transfers table gained
+      nullable token/token_amount columns). Activity renders "Sent $SYM to @user · N SYM".
+      Fixed a migration bug on the way (ALTER used `db.exec` instead of `_db.exec`, silently
+      swallowed — existing users.db self-heals on next restart).
+- [ ] Later: lock (separate FinchLock product, deferred); CTO-request FORM (off-chain admin
+      queue — `cto_requests` table exists in schema.sql; needs a request UI + an admin review
+      surface, bigger than the other flows).
 
 ## Token display — show liquidity (added 2026-07-22)
 

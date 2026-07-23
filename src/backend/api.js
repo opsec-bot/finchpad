@@ -14,8 +14,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { formatEther } from "viem";
-import { PONS, poolAbi, tokenAbi } from "../lib/contracts.js";
+import { formatEther, decodeEventLog } from "viem";
+import { PONS, poolAbi, tokenAbi, TRANSFER } from "../lib/contracts.js";
 import { publicClient } from "../lib/chain.js";
 import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
 import { toCandles } from "../lib/ohlc.js";
@@ -408,11 +408,16 @@ async function route(url) {
       const outgoing = t.from_addr === a;
       const counterparty = outgoing ? t.to_addr : t.from_addr;
       const cpUser = getUserByAddress(counterparty);
+      const isToken = Boolean(t.token);
       rows.push({
         type: outgoing ? (cpUser ? "send" : "withdraw") : "receive",
         counterparty,
         counterpartyUsername: cpUser?.username ?? null,
-        amountEth: t.value_eth,
+        // ETH transfers carry amountEth; token transfers carry the token + its amount.
+        amountEth: isToken ? undefined : t.value_eth,
+        token: t.token ?? undefined,
+        symbol: isToken && db ? (getTokenRow(db, t.token)?.symbol ?? "?") : undefined,
+        tokenAmount: isToken ? t.token_amount : undefined,
         ts: Number(t.ts),
         txHash: t.tx_hash,
       });
@@ -449,6 +454,28 @@ async function route(url) {
       body: { address: a, count: rows.length, activity: rows.slice(0, 150), ethUsd: await getEthUsd() },
       headers: { "cache-control": "no-store" },
     };
+  }
+
+  // GET /holdings/:address — indexed tokens this wallet holds a balance of, for the send
+  // asset picker. Cheap and cached; a superset read (balanceOf per token) filtered to >0.
+  if (parts[0] === "holdings") {
+    if (!isAddress(parts[1])) return { status: 400, body: { error: "invalid address" } };
+    const db = getDb();
+    if (!db) return { status: 200, body: { holdings: [] } };
+    const address = parts[1];
+    const holdings = await cached(`holdings:${address.toLowerCase()}`, 15_000, async () => {
+      const out = [];
+      await Promise.all(
+        listTokens(db, { limit: 500 }).map(async (t) => {
+          const raw = await publicClient
+            .readContract({ address: t.address, abi: tokenAbi, functionName: "balanceOf", args: [address] })
+            .catch(() => 0n);
+          if (raw > 0n) out.push({ token: t.address, symbol: getTokenRow(db, t.address)?.symbol ?? "?", balance: raw.toString() });
+        }),
+      );
+      return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    });
+    return { status: 200, body: { holdings } };
   }
 
   // GET /referrals/:address — a referrer's on-chain earnings, for the referrals menu.
@@ -718,15 +745,20 @@ export const server = createServer(async (req, res) => {
       }
     }
 
-    // Write endpoint #2: record a Send/Withdraw in the ledger. The client only supplies a tx
-    // hash — from/to/value are read FROM THE CHAIN (mined receipt required), so a spoofed
-    // post can at worst record a real transaction that really happened.
+    // Write endpoint #2: record a Send/Withdraw in the ledger. The client supplies a tx hash
+    // (and optionally a token address for ERC-20 sends) — everything else is read FROM THE
+    // CHAIN: for ETH, tx.from/to/value; for a token, the ERC-20 Transfer log emitted by that
+    // token where from == tx.from. A spoofed post can at worst record a real transaction.
     if (req.method === "POST" && url.pathname === "/transfers") {
       const body = await readJsonBody(req, 1024).catch((e) => ({ __err: e.message }));
       if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
       const hash = body.txHash;
+      const tokenAddr = body.token;
       if (typeof hash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(hash)) {
         return send(req, res, 400, { error: "txHash must be a 0x…64 hash" }, { "cache-control": "no-store" });
+      }
+      if (tokenAddr !== undefined && tokenAddr !== null && !isAddress(tokenAddr)) {
+        return send(req, res, 400, { error: "token must be a 0x address" }, { "cache-control": "no-store" });
       }
       try {
         const [tx, receipt] = await Promise.all([
@@ -734,8 +766,39 @@ export const server = createServer(async (req, res) => {
           publicClient.getTransactionReceipt({ hash }),
         ]);
         if (receipt.status !== "success") return send(req, res, 400, { error: "transaction reverted" }, { "cache-control": "no-store" });
-        if (!tx.to || tx.value === 0n) return send(req, res, 400, { error: "not a value transfer" }, { "cache-control": "no-store" });
         const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+
+        if (tokenAddr) {
+          // Find this token's Transfer log where the sender is the tx signer.
+          const wanted = tokenAddr.toLowerCase();
+          let decoded = null;
+          for (const log of receipt.logs) {
+            if (log.address.toLowerCase() !== wanted) continue;
+            try {
+              const ev = decodeEventLog({ abi: [TRANSFER], data: log.data, topics: log.topics });
+              if (ev.eventName === "Transfer" && ev.args.from.toLowerCase() === tx.from.toLowerCase()) {
+                decoded = ev.args;
+                break;
+              }
+            } catch {
+              /* not a Transfer log */
+            }
+          }
+          if (!decoded) return send(req, res, 400, { error: "no matching token transfer in this tx" }, { "cache-control": "no-store" });
+          insertTransfer({
+            txHash: hash,
+            from: tx.from,
+            to: decoded.to,
+            valueEth: 0,
+            token: wanted,
+            tokenAmount: Number(formatEther(decoded.value)),
+            ts: Number(block.timestamp),
+            block: Number(receipt.blockNumber),
+          });
+          return send(req, res, 200, { ok: true }, { "cache-control": "no-store" });
+        }
+
+        if (!tx.to || tx.value === 0n) return send(req, res, 400, { error: "not a value transfer" }, { "cache-control": "no-store" });
         insertTransfer({
           txHash: hash,
           from: tx.from,

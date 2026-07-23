@@ -128,7 +128,9 @@ export interface LedgerRow {
 export const api = {
   ledger: (address: string) =>
     get<{ address: string; count: number; activity: LedgerRow[]; ethUsd: number | null }>(`/ledger/${address}`),
-  recordTransfer: (txHash: string) => post<{ ok: boolean }>("/transfers", { txHash }),
+  holdings: (address: string) =>
+    get<{ holdings: { token: string; symbol: string; balance: string }[] }>(`/holdings/${address}`),
+  recordTransfer: (txHash: string, token?: string) => post<{ ok: boolean }>("/transfers", { txHash, token }),
   recordAction: (type: ActionType, txHash: string, token?: string) =>
     post<{ ok: boolean }>("/actions", { type, txHash, token }),
   stats: () => get<ProtocolStatsResponse>("/stats"),

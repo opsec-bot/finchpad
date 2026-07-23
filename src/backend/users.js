@@ -41,7 +41,7 @@ export function usersDb() {
       tx_hash     TEXT PRIMARY KEY,
       from_addr   TEXT NOT NULL,                  -- lowercase
       to_addr     TEXT NOT NULL,                  -- lowercase
-      value_eth   REAL NOT NULL,
+      value_eth   REAL NOT NULL,                  -- 0 for token transfers
       ts          INTEGER NOT NULL,
       block       INTEGER NOT NULL
     );
@@ -63,6 +63,19 @@ export function usersDb() {
     );
     CREATE INDEX IF NOT EXISTS actions_actor_idx ON actions (actor, ts DESC);
   `);
+
+  // Token columns for transfers, added idempotently (ETH transfers leave them null). SQLite
+  // throws when the column already exists — that's the "already migrated" signal.
+  for (const alter of [
+    "ALTER TABLE transfers ADD COLUMN token TEXT",          // lowercase token address, null = ETH
+    "ALTER TABLE transfers ADD COLUMN token_amount REAL",   // token units, null for ETH
+  ]) {
+    try {
+      _db.exec(alter);
+    } catch {
+      /* already exists */
+    }
+  }
   return _db;
 }
 
@@ -176,17 +189,17 @@ export function getUserByAddress(address) {
 
 // --- transfers (Send / Withdraw ledger) --------------------------------------------------
 
-export function insertTransfer({ txHash, from, to, valueEth, ts, block }) {
+export function insertTransfer({ txHash, from, to, valueEth, token = null, tokenAmount = null, ts, block }) {
   usersDb().prepare(
-    `INSERT OR IGNORE INTO transfers (tx_hash, from_addr, to_addr, value_eth, ts, block)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(txHash.toLowerCase(), from.toLowerCase(), to.toLowerCase(), valueEth, ts, block);
+    `INSERT OR IGNORE INTO transfers (tx_hash, from_addr, to_addr, value_eth, token, token_amount, ts, block)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(txHash.toLowerCase(), from.toLowerCase(), to.toLowerCase(), valueEth, token ? token.toLowerCase() : null, tokenAmount, ts, block);
 }
 
 export function listTransfers(address, limit = 100) {
   const a = address.toLowerCase();
   return usersDb().prepare(
-    `SELECT tx_hash, from_addr, to_addr, value_eth, ts FROM transfers
+    `SELECT tx_hash, from_addr, to_addr, value_eth, token, token_amount, ts FROM transfers
      WHERE from_addr = ? OR to_addr = ? ORDER BY ts DESC LIMIT ?`
   ).all(a, a, limit);
 }
