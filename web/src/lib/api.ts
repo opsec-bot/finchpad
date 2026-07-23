@@ -56,9 +56,19 @@ export const api = {
       `/tokens/${addr}/candles?interval=${interval}&blocks=${blocks}`,
     ),
   trades: (addr: string, blocks = 3000) =>
-    get<{ symbol: string; count: number; trades: { side: "buy" | "sell"; tokenAmount: number; wethAmount: number }[] }>(
-      `/tokens/${addr}/trades?blocks=${blocks}`,
-    ),
+    get<{
+      symbol: string;
+      count: number;
+      trades: {
+        side: "buy" | "sell";
+        tokenAmount: number;
+        wethAmount: number;
+        timestamp: number;
+        block: number;
+        txHash: `0x${string}`;
+        priceWeth: number;
+      }[];
+    }>(`/tokens/${addr}/trades?blocks=${blocks}`),
   resolveGithub: (kind: "user" | "repo", q: string) =>
     get<{ kind: string; id: string; login: string; avatar?: string }>(
       `/github/resolve?kind=${kind}&q=${encodeURIComponent(q)}`,

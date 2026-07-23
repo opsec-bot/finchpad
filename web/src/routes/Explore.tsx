@@ -1,129 +1,146 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Rocket } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import TokenAvatar from "@/components/TokenAvatar";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ProtocolStats from "@/components/ProtocolStats";
+import TokenCard from "@/components/TokenCard";
+import TokenCardSkeleton from "@/components/TokenCardSkeleton";
 import { api } from "@/lib/api";
-import type { TokenDetail, TokenSummary } from "@/lib/api";
-import { useEthUsd, usd, amount } from "@/lib/money";
+import { buildTokenView } from "@/lib/tokenView";
+import type { TokenView } from "@/lib/tokenView";
+
+type Sort = "trending" | "mcap" | "new" | "graduating";
+
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "trending", label: "Trending" },
+  { value: "mcap", label: "Top market cap" },
+  { value: "new", label: "Newest" },
+  { value: "graduating", label: "Graduating" },
+];
 
 /**
- * The feed. Each row resolves its own detail so the list can show a name, image and price
- * rather than a wall of addresses — an address is not something anyone recognises, and a
- * launchpad whose feed is unreadable has no top of funnel.
+ * The feed. Each token's detail and candles are folded into one view-model so the list can be
+ * sorted by real numbers — 24h change, market cap, graduation — and each card shows a name,
+ * sparkline and price rather than a wall of addresses.
  */
-export default function Explore({ onSelect }: { onSelect: (t: string) => void }) {
-  const [tokens, setTokens] = useState<TokenSummary[] | null>(null);
+export default function Explore({ onSelect }: { onSelect: (address: string) => void }) {
+  const [views, setViews] = useState<TokenView[] | null>(null);
+  const [count, setCount] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [sort, setSort] = useState<Sort>("trending");
 
   useEffect(() => {
-    api
-      .tokens()
-      .then((d) => setTokens(d.tokens))
-      .catch((e: Error) => setErr(e.message));
+    let alive = true;
+    (async () => {
+      try {
+        const { tokens } = await api.tokens();
+        if (!alive) return;
+        setCount(tokens.length);
+        if (tokens.length === 0) {
+          setViews([]);
+          return;
+        }
+        const results = await Promise.allSettled(
+          tokens.map(async (summary) => {
+            const [detail, candles] = await Promise.all([
+              api.token(summary.token),
+              api.candles(summary.token).catch(() => ({ candles: [] })),
+            ]);
+            return buildTokenView(summary, detail, candles.candles);
+          }),
+        );
+        if (!alive) return;
+        const loaded = results
+          .filter((r): r is PromiseFulfilledResult<TokenView> => r.status === "fulfilled")
+          .map((r) => r.value);
+        setViews(loaded);
+      } catch (e) {
+        if (alive) setErr((e as Error).message);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  const sorted = useMemo(() => {
+    if (!views) return [];
+    const list = [...views];
+    switch (sort) {
+      case "mcap":
+        return list.sort((a, b) => b.marketCapWeth - a.marketCapWeth);
+      case "new":
+        return list.sort((a, b) => b.block - a.block);
+      case "graduating":
+        return list.filter((t) => !t.graduated).sort((a, b) => b.graduationProgress - a.graduationProgress);
+      case "trending":
+      default:
+        return list.sort((a, b) => b.change24h - a.change24h);
+    }
+  }, [views, sort]);
+
+  const graduated = views?.filter((t) => t.graduated).length ?? 0;
+  const verified = views?.filter((t) => t.githubVerified).length ?? 0;
 
   return (
     <div className="rise">
-      <div className="mb-5 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Tokens</h1>
-          <p className="text-sm text-muted-foreground">Every token launched on finchpad, newest first.</p>
-        </div>
-        {tokens && <span className="text-sm text-muted-foreground tabular">{tokens.length}</span>}
+      {/* Hero strip */}
+      <div className="mb-5 flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-balance md:text-3xl">Discover tokens on finchpad</h1>
+        <p className="max-w-xl text-sm leading-relaxed text-muted-foreground text-pretty">
+          Fixed supply, permanently locked liquidity, and verifiable fees. Every token graduates the same way.
+        </p>
       </div>
 
-      {err && (
-        <Card className="border-destructive/40 p-4 text-sm text-destructive">{err}</Card>
-      )}
+      <div className="mb-5">
+        <ProtocolStats tokens={count ?? 0} graduated={graduated} verified={verified} loading={!views} />
+      </div>
 
-      {!tokens && !err && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Controls */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Tabs value={sort} onValueChange={(v) => setSort(v as Sort)}>
+          <TabsList>
+            {SORTS.map((s) => (
+              <TabsTrigger key={s.value} value={s.value}>
+                {s.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        {views && <span className="text-sm text-muted-foreground tnum">{sorted.length}</span>}
+      </div>
+
+      {err && <Card className="border-destructive/40 p-4 text-sm text-destructive">{err}</Card>}
+
+      {!views && !err && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i} className="p-4">
-              <div className="flex items-center gap-3">
-                <Skeleton className="size-10 rounded-xl" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              </div>
-            </Card>
+            <TokenCardSkeleton key={i} />
           ))}
         </div>
       )}
 
-      {tokens?.length === 0 && (
-        <Card className="p-10 text-center">
-          <p className="font-medium">No tokens yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">Launch the first one.</p>
+      {views && views.length === 0 && (
+        <Card className="flex flex-col items-center justify-center gap-4 border-dashed py-16 text-center">
+          <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Rocket className="size-6" aria-hidden />
+          </span>
+          <div className="flex flex-col gap-1">
+            <p className="text-base font-semibold">No tokens yet</p>
+            <p className="mx-auto max-w-sm text-sm text-muted-foreground text-pretty">
+              Be the first to launch. It takes one transaction, and liquidity is locked forever.
+            </p>
+          </div>
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {tokens?.map((t) => (
-          <TokenCard key={t.txHash} summary={t} onSelect={onSelect} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TokenCard({ summary, onSelect }: { summary: TokenSummary; onSelect: (t: string) => void }) {
-  const [d, setD] = useState<TokenDetail | null>(null);
-  const ethUsd = useEthUsd();
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .token(summary.token)
-      .then((x) => alive && setD(x))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [summary.token]);
-
-  return (
-    <Card
-      onClick={() => onSelect(summary.token)}
-      className="lift cursor-pointer p-4 hover:border-primary/50 hover:bg-card/80"
-    >
-      <div className="flex items-center gap-3">
-        <TokenAvatar src={d?.logo} symbol={d?.symbol ?? "?"} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-semibold">{d?.name ?? "…"}</span>
-            {d?.github?.claimed && (
-              <Badge variant="secondary" className="shrink-0 text-[10px]">
-                verified
-              </Badge>
-            )}
-          </div>
-          <div className="truncate text-sm text-muted-foreground">{d ? `$${d.symbol}` : summary.token.slice(0, 10)}</div>
-        </div>
-        <div className="text-right">
-          <div className="tabular text-sm font-medium">
-            {d ? (ethUsd ? usd(d.marketCapWeth * ethUsd) : `${d.marketCapWeth.toFixed(3)} Ξ`) : "—"}
-          </div>
-          <div className="text-[11px] text-muted-foreground">market cap</div>
-        </div>
-      </div>
-
-      {d?.graduation && (
-        <div className="mt-3">
-          <div className="h-1 overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-500"
-              style={{ width: `${Math.min(100, d.graduation.progress * 100)}%` }}
-            />
-          </div>
-          <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
-            <span>{d.graduation.graduated ? "Graduated" : "Graduation"}</span>
-            <span className="tabular">{amount(d.totalSupply)} supply</span>
-          </div>
+      {views && views.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {sorted.map((token) => (
+            <TokenCard key={token.address} token={token} onSelect={onSelect} />
+          ))}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
