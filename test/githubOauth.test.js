@@ -178,3 +178,23 @@ test("github access token is never echoed back", async () => {
   const res = await auth.handle(url(`/auth/github/callback?code=c&state=${state}`));
   assert.ok(!JSON.stringify(res.body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)).includes("gho_test"));
 });
+
+test("menu-mode popup HTML cannot be broken out of by creator-controlled token names (XSS)", async () => {
+  // The claims JSON lands inside an inline <script>. A token name is attacker-controlled, so a
+  // name containing a closing script tag must never appear raw in the emitted HTML.
+  const evil = "</" + "script><script>window.__pwned=1</" + "script>";
+  const auth = makeAuth({
+    listBindings: async () => [
+      { address: TOKEN, symbol: "EVIL", name: evil, github_kind: 2, github_id: "555777" },
+    ],
+  });
+  const start = await auth.handle(url(`/auth/github/start?mode=menu&claimant=${CLAIMANT}`));
+  const state = new URL(start.redirect).searchParams.get("state");
+  const res = await auth.handle(url(`/auth/github/callback?code=c&state=${state}`));
+
+  assert.ok(res.html, "menu mode returns an HTML page");
+  // The raw closing tag must NOT survive — it would terminate the inline <script> block.
+  assert.ok(!res.html.includes("<" + "/script><script>window"), "creator name must not break out of the script block");
+  // It survives unicode-escaped, parsed by the browser as data inside the JSON string.
+  assert.ok(res.html.includes(String.raw`<`), "< is unicode-escaped inside the embedded JSON");
+});

@@ -171,7 +171,11 @@ export function createGithubAuth({
         }
 
         const payload = { identity: user.login, githubId: String(userId), claimant: pending.claimant, claims };
-        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+        // `<` escaped inside string values: this JSON lands in an inline <script>, and token
+        // names/symbols are CREATOR-CONTROLLED — "</script>" in a name must never terminate
+        // the block (XSS on the signing origin). < is legal JSON and parses identically.
+        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v))
+          .replace(/</g, String.fromCharCode(92) + "u003c");
         const html = `<!doctype html><meta charset="utf-8"><title>finchpad</title>
 <body style="background:#131d24;color:#9fb6b6;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0">
 <p>GitHub verified — returning to finchpad…</p>
@@ -232,7 +236,11 @@ export function createGithubAuth({
       // origin is OUR origin (opener and popup are served by this same server), so the
       // payload can't be delivered to a foreign window.
       if (pending.popup) {
-        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+        // `<` escaped inside string values: this JSON lands in an inline <script>, and token
+        // names/symbols are CREATOR-CONTROLLED — "</script>" in a name must never terminate
+        // the block (XSS on the signing origin). < is legal JSON and parses identically.
+        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v))
+          .replace(/</g, String.fromCharCode(92) + "u003c");
         const html = `<!doctype html><meta charset="utf-8"><title>finchpad</title>
 <body style="background:#131d24;color:#9fb6b6;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0">
 <p>GitHub verified — returning to finchpad…</p>
