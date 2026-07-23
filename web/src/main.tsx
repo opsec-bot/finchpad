@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { PrivyProvider } from "@privy-io/react-auth";
 import App from "./App";
+import { BlurBalancesProvider } from "./lib/blurBalances";
 import { robinhoodChain } from "./lib/chain";
 import "./styles.css";
 
@@ -35,15 +36,16 @@ function Root() {
         defaultChain: robinhoodChain,
         supportedChains: [robinhoodChain],
         appearance: { theme: "dark", accentColor: "#7CB4B4", logo: "/logo.svg" },
-        // Give people who have no wallet a way in — the whole point of creator onboarding.
+        // Email + Google only, by design: finchpad is embedded-wallet-only so trading volume
+        // stays in-app (see TODOS, "one-click … embedded-wallet only"). No external-wallet or
+        // GitHub login. Signup creates an embedded wallet for the new user.
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
-        loginMethods: ["wallet", "email", "google", "github"],
-        // Coinbase Smart Wallet does not support chain 4663, and offering it produces a
-        // connector that can only fail. EOA connection to Coinbase Wallet still works.
-        externalWallets: { coinbaseWallet: { config: { preference: { options: "eoaOnly" } } } },
+        loginMethods: ["email", "google"],
       }}
     >
-      <App />
+      <BlurBalancesProvider>
+        <App />
+      </BlurBalancesProvider>
     </PrivyProvider>
   );
 }

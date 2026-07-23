@@ -284,9 +284,16 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
+// Un-hashed public files referenced by name (the favicon). An explicit allowlist, not a
+// directory: this process sits next to a signing key and must not become a general static
+// file server. In-app imagery goes through the bundler and lands under /assets/.
+const PUBLIC_FILES = new Set(["/logo.svg"]);
+
 async function serveAsset(req, pathname, res) {
-  // Vite emits everything under /assets with content-hashed names.
-  if (!pathname.startsWith("/assets/")) return false;
+  // Vite emits build output under /assets with content-hashed names; the handful of un-hashed
+  // public files above are served by exact-path allowlist.
+  const hashed = pathname.startsWith("/assets/");
+  if (!hashed && !PUBLIC_FILES.has(pathname)) return false;
   // Reject anything that could escape the dist directory before touching the filesystem.
   if (pathname.includes("..") || pathname.includes("\0")) return false;
   const ext = pathname.slice(pathname.lastIndexOf("."));
@@ -300,8 +307,9 @@ async function serveAsset(req, pathname, res) {
 
   res.writeHead(200, {
     "content-type": type,
-    // Hashed filenames, so these are immutable.
-    "cache-control": "public, max-age=31536000, immutable",
+    // Hashed filenames are immutable; un-hashed public files can change on redeploy, so give
+    // them a short cache instead of a year.
+    "cache-control": hashed ? "public, max-age=31536000, immutable" : "public, max-age=3600",
     "x-content-type-options": "nosniff",
   });
   res.end(req.method === "HEAD" ? undefined : body);

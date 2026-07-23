@@ -37,6 +37,13 @@ export function usd(value: number): string {
   return `$${value.toPrecision(4)}`;
 }
 
+/** Exact dollars with thousands separators: $191,278.52. For account balances, where the
+ *  precise figure matters — as opposed to `usd()`'s compact $191.28K for dense stat rows. */
+export function usdExact(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /** Compact token counts: 44.4M, 1.2K, 12.34 */
 export function amount(n: number): string {
   const abs = Math.abs(n);

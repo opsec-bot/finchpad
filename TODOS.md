@@ -28,7 +28,98 @@ work, no code): scheduled for tomorrow.
             commands become Safe transactions (Safe UI or safe-cli) — re-time the "<1 hour
             containment" target against how fast a 2-of-3 can actually sign.
 
+## Website redesign — clean, fomo.family-inspired (added 2026-07-22)
+
+Direction call (user): make finchpad clean like fomo.family (dark trader-terminal, dense but
+tidy). Dropped the AI-generated cartoon finch mascot as "corny" — reverted to the simple
+`web/public/logo.svg` finch; token/user avatars carry personality instead. The Higgsfield
+mascot/hero/placeholder assets were removed.
+
+- [x] **Top bar + account menu — SHIPPED.** fomo-style top-right: wallet cash in USD (ETH in
+      title), a **Deposit** action (`useFundWallet`), and an avatar dropdown — Your profile /
+      Manage account / **Blur balances** (a working privacy toggle, persisted) / Referrals /
+      Log out. Blur balances hides only the viewer's own figures, never public market data
+      (`web/src/lib/blurBalances.tsx`). Manage account modal shows the wallet address (copy),
+      linked accounts, and link-email / link-wallet / export-wallet (`AccountMenu.tsx`,
+      `AccountArea.tsx`, minimal `ui/modal.tsx`). Replaces the old `WalletButton`.
+- [x] **Login = email + Google only (app side).** Privy `loginMethods` trimmed to
+      `["email","google"]` (was wallet/email/google/github); external-wallet + GitHub login
+      removed. Signup creates an embedded wallet — consistent with the embedded-wallet-only
+      direction. **Dashboard hardening (set by user 2026-07-22, server-side):** email login
+      blocks `+`-addresses and known temporary-email domains; SMS blocks VoIP numbers; automatic
+      embedded-wallet creation on login is on (EVM). These are enforced in the Privy dashboard,
+      not in our code — keep the app `loginMethods` and the dashboard's allowed methods in sync.
+- [ ] **MFA on transactions (Privy) — dashboard ON, frontend TODO.** User enabled MFA-for-
+      transactions in the Privy dashboard with **all factors** (authenticator app, passkey, SMS)
+      and a **1-hour** verification cache (default is 15 min). So Privy will require a second
+      factor before a wallet transaction, then not re-prompt for an hour. Frontend work: (1) an
+      **enrollment** surface in the Manage-account modal so users can set up authenticator /
+      passkey / SMS (`useMfa` — enroll/list/unenroll); (2) handle the MFA prompt/challenge in the
+      trade + launch flows (the SDK surfaces an MFA requirement on submit). This **interacts with
+      one-click trading**: see that section — disable-confirm-modals + the 1-hour MFA cache is
+      basically the one-click mechanism. Use the installed **`privy` skill** when building.
+- [ ] **SMS login — MAYBE (user undecided).** Dashboard supports it (VoIP blocked). If we want
+      it, add `"sms"` to app `loginMethods`. Tradeoff: lowers signup friction and gives an MFA/
+      recovery factor, but adds a phone-number PII surface and SMS cost. Decision pending; not
+      added to `loginMethods` yet.
+- [ ] **Username / handle on signup (planned — needs persistence).** After the first email/Google
+      signup, prompt for a sitewide username: either auto-generate a default or let the user type
+      one. Validation: **lowercase `a-z` and `0-9`, underscores allowed only between
+      alphanumerics** — no leading/trailing/consecutive underscores. Regex:
+      `^[a-z0-9]+(?:_[a-z0-9]+)*$` (pick length bounds, e.g. 3–20). The handle drives
+      `/profile/<username>` and the referral link `/r/<username>`, so it must be **unique** —
+      which requires a backend users store (add a `users` table to `src/backend/schema.sql`) and
+      a claim/availability check. Blocked on the R2 persistence layer, same as profiles below.
+      Until then, Privy's DID is the identity and there is no public handle.
+- [ ] **Your profile — stubbed** ("coming soon" toast). Needs the profile pages + the handle above.
+- [ ] **Referrals modal.** Copy fomo's layout: big total earned, "earn X% of your friends'
+      fees" banner, earned-last-7d + friends-referred stats, a copyable `/r/<handle>` link, and
+      a per-referral table (handle, fees earned, volume). Build on the existing on-chain
+      referral system (`ReferralPaid` events / `referrer` in LaunchParams). Needs the R2 indexer
+      for the per-referral fee/volume table. Currently a "coming soon" toast in the menu.
+- [ ] **Profiles (fomo-style).** Profile page: avatar/banner/bio, following/followers,
+      portfolio value + PnL chart (24H/7D/30D/ALL), positions table (avg entry/exit/PnL,
+      open/closed), swaps table. Needs wallet identity + the R2 persistence layer (per-user
+      holdings/positions), so it's the most blocked. Portfolio value in the top bar is deferred
+      for the same reason (top bar shows spendable ETH as cash for now, no holdings valuation).
+- [ ] **Deposit on chain 4663.** `useFundWallet` opens Privy's funding modal but Privy's
+      on-ramp providers may not support Robinhood Chain; the button catches and toasts if so.
+      Revisit once we know what funding path works (bridge vs direct).
+
+## Token display — show liquidity (added 2026-07-22)
+
+- [ ] **Show pool liquidity.** Surface each token's Uniswap V3 pool liquidity/depth on the token
+      cards (Explore) and the token page — the on-chain liquidity is already readable
+      (`pool.liquidity()` / `slot0`, see `poolAbi` in `web/src/lib/trade.ts`; backend can derive
+      a WETH-denominated TVL from the pool's WETH balance + price). Traders read liquidity as the
+      key "can I actually get in/out" signal, so it belongs next to market cap. Decide the metric:
+      WETH/USD value locked in the pool (simplest, intuitive) vs raw V3 `liquidity`. Note finch
+      liquidity is **permanently locked** (that's a selling point) — label it so, and it pairs
+      well with the existing graduation/locked-liquidity trust framing.
+
 ## Trading UX — one-click buy/sell without signing every trade (added 2026-07-22)
+
+**Scope call (user 2026-07-22): one-click is EMBEDDED-WALLET ONLY.** The goal is to keep volume
+in-app — nudge people onto the finchpad embedded wallet (Privy) rather than supporting session
+keys for external wallets like MetaMask. So the ERC-4337/EIP-7702 external-wallet path below is
+explicitly DEFERRED; external-wallet users keep signing per trade (and that's the incentive to
+move funds into the app wallet). Verify with the installed **`privy` skill** (and Context7) before
+building.
+
+**Privy levers already configured in the dashboard (user 2026-07-22) — these ARE the one-click
+mechanism for embedded wallets:**
+- **"Disable confirmation modals (react-auth only)"** — turns off Privy's default review-before-
+  sign UI for embedded-wallet transactions. This is the switch that removes the per-trade popup;
+  pair it with finchpad's own clear pre-trade review in `TradePanel` so we don't lose the
+  what-am-I-signing surface entirely.
+- **MFA-for-transactions ON, 1-hour cache** — so the flow is: user verifies MFA once, then trades
+  freely (no modal) for an hour. That's the real "click buy/sell and it goes" behaviour, without
+  raw session keys. Session duration 30d, access-token 1h, signing-key 60min are also set.
+- Net: for embedded wallets, one-click may not even need custom session signers — disable-confirm-
+  modals + cached MFA gets most of the way. Session signers / `delegated-actions` remain the
+  option if we want fully headless (server-signed) trading later. Confirm exact behaviour against
+  the `privy` skill before wiring `TradePanel`.
+
 
 User pain: having to confirm in MetaMask on every single buy/sell is annoying — wants to just
 click Buy / Sell and have it go through.

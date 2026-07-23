@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Feather, Plus } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
-import { WalletButton } from "@/components/Wallet";
+import { AccountArea } from "@/components/AccountArea";
 import Explore from "@/routes/Explore";
 import Launch from "@/routes/Launch";
 import Token from "@/routes/Token";
@@ -62,7 +62,7 @@ export default function App() {
               <Plus className="size-4" aria-hidden />
               Launch token
             </Button>
-            <WalletButton />
+            <AccountArea />
           </div>
         </div>
       </header>

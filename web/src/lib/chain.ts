@@ -1,4 +1,4 @@
-import { defineChain } from "viem";
+import { createPublicClient, defineChain, http } from "viem";
 
 /**
  * Robinhood Chain mainnet. Not in viem/chains, so it is defined here and handed to
@@ -40,6 +40,9 @@ export const addresses = {
   registry: (import.meta.env.VITE_FINCH_REGISTRY ?? "") as `0x${string}` | "",
   featureBoost: (import.meta.env.VITE_FINCH_FEATURE_BOOST ?? "") as `0x${string}` | "",
 } as const;
+
+/** A read-only client for cheap public reads (wallet balances, etc.) that need no signer. */
+export const publicClient = createPublicClient({ chain: robinhoodChain, transport: http() });
 
 export const explorerTx = (hash: string) => `${robinhoodChain.blockExplorers.default.url}/tx/${hash}`;
 export const explorerAddress = (a: string) => `${robinhoodChain.blockExplorers.default.url}/address/${a}`;
