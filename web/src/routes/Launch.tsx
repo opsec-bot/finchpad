@@ -191,10 +191,16 @@ export default function Launch({
 
       {!configured ? (
         <Card className="p-5">
-          <CardTitle>Factory not configured</CardTitle>
+          <CardTitle>Launching isn't available yet</CardTitle>
           <p className="mt-2 text-sm text-muted-foreground">
-            No factory address configured. Set <code>VITE_FINCH_FACTORY</code> in <code>web/.env.local</code>. Run{" "}
-            <code>npm run dev:fork</code> then <code>npm run dev:seed</code> to get a local deployment to point at.
+            {import.meta.env.DEV ? (
+              <>
+                No factory address configured. Set <code>VITE_FINCH_FACTORY</code> in <code>web/.env.local</code>, or run{" "}
+                <code>npm run dev</code> to boot a seeded local deployment.
+              </>
+            ) : (
+              "Token launching is coming soon. Check back shortly."
+            )}
           </p>
         </Card>
       ) : (

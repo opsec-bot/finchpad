@@ -122,6 +122,22 @@ export default function App() {
       .catch(() => setApiUp(false));
   }, []);
 
+  // Keep the browser-tab title in step with the route — a static "finchpad" on every page
+  // reads as stale for a linkable SPA.
+  useEffect(() => {
+    const titles: Record<Route["page"], string> = {
+      explore: "finchpad — discover tokens",
+      analytics: "Analytics · finchpad",
+      terms: "Terms · finchpad",
+      activity: "Activity · finchpad",
+      launch: "Launch a token · finchpad",
+      token: "Token · finchpad",
+      profile: `@${(route as { username?: string }).username ?? ""} · finchpad`,
+      ref: "finchpad",
+    };
+    document.title = titles[route.page] ?? "finchpad";
+  }, [route]);
+
   const goExplore = useCallback(() => navigate({ page: "explore" }), [navigate]);
   const onExplore = route.page === "explore";
 
@@ -160,7 +176,9 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             {apiUp === false && (
-              <span className="hidden text-xs text-destructive sm:inline">API offline — run npm run dev</span>
+              <span className="hidden text-xs text-destructive sm:inline">
+                {import.meta.env.DEV ? "API offline — run npm run dev" : "Reconnecting…"}
+              </span>
             )}
             <Button size="sm" onClick={() => navigate({ page: "launch" })}>
               <Plus className="size-4" aria-hidden />

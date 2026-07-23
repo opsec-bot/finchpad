@@ -103,7 +103,15 @@ export function ReferralsModal({
         </button>
 
         {/* Per-token breakdown */}
-        {err && <p className="text-sm text-destructive">{err.includes("indexer") ? "Referral data needs the indexer — start npm run dev." : err}</p>}
+        {err && (
+          <p className="text-sm text-destructive">
+            {err.includes("indexer")
+              ? import.meta.env.DEV
+                ? "Referral data needs the indexer — start npm run dev."
+                : "Referral data is loading — check back shortly."
+              : err}
+          </p>
+        )}
         {data && data.tokens.length > 0 && (
           <div className="flex flex-col">
             <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-muted-foreground">

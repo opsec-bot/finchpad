@@ -69,8 +69,10 @@ export default function ClaimFees({ token, onClaimed }: { token: TokenDetail; on
         });
       }
       if (!claim.signed || !claim.signature) {
-        return toast.error("Claims aren't enabled on this server", {
-          description: "The claim signer isn't provisioned. In local dev, restart npm run dev to get the dev signer.",
+        return toast.error("Claims aren't available right now", {
+          description: import.meta.env.DEV
+            ? "The claim signer isn't provisioned. Restart npm run dev to get the dev signer."
+            : "The claim service is temporarily unavailable. Please try again later.",
         });
       }
       if (!wallet || claim.claimant.toLowerCase() !== wallet.address.toLowerCase()) {

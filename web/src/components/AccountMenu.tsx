@@ -19,8 +19,7 @@ const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
 
 /**
  * The account dropdown behind the avatar, modelled on fomo's: Your profile / Manage account /
- * Blur balances (a toggle) / Referrals / Log out. Profiles and Referrals are stubbed with a
- * "coming soon" toast until those features land; the rest are live.
+ * Blur balances (a toggle) / Referrals / Claim creator fees / Activity / Log out.
  */
 export function AccountMenu() {
   const { user, logout, exportWallet } = usePrivy();

@@ -180,6 +180,39 @@ mascot/hero/placeholder assets were removed.
 - [ ] Later: lock (separate FinchLock product, deferred). CTO backlogged — see the dedicated
       section below.
 
+## Partial open-source — decision + honest analysis (added 2026-07-23)
+
+User idea: partially open-source finchpad for credibility, but not expose vulns — proposed
+copying the same files into a separate public repo under an org.
+
+**The copy-the-same-files approach does NOT work — flag before doing it.** A public repo with
+identical source hands an attacker the exact code the live site runs; every vuln in the copy
+IS a production vuln, and reading it there is as good as reading the private repo. It's all the
+downside of open-sourcing (free auditing by attackers) with none of the protection. "Separate
+repo" is not a security boundary — the code is the code. And the highest-value target, the
+smart contracts, are ALREADY fully public + immutable on-chain (decompilable from bytecode,
+and we'll likely verify them on Blockscout) — contract logic can't be hidden regardless.
+
+**What actually achieves the goal (credibility without a drainer map):**
+- [ ] **Split by sensitivity, not by copy.** Open-source the safe-to-expose parts, keep the
+      sensitive parts private:
+      - OPEN: `contracts/` (already public + on-chain), the frontend (`web/`), the read-only
+        API surface. No secrets; attacking these still needs on-chain funds.
+      - PRIVATE: the signer service (`src/backend/githubOauth.js` + `githubClaim.js` claim
+        signing), key custody / `docs/security/signer-key-runbook.md`, anything touching
+        `FINCH_CLAIM_SIGNER_KEY`. This is the "network-isolated signer next to the key" the
+        plan already calls for — so the split is architectural, not cosmetic.
+      Mechanically: either a public mirror that excludes the private paths (git filter/subtree,
+      NOT a full copy), or physically move the signer service into its own private repo/service
+      and open the rest. The latter matches the production deploy topology anyway.
+- [ ] **Remember the real protections live elsewhere** (all already in deploy-prep gates):
+      signer key in HSM/KMS, admin behind a Gnosis Safe, the external audit. Source obscurity
+      is a distant, mostly-illusory fourth — do the split for CREDIBILITY, not as a security
+      control, and don't let it create a false sense of safety.
+- [ ] Decide license (MIT is already declared in package.json) and what "partial" means
+      publicly — a clear README on the public repo about what's open and why the signer path
+      isn't.
+
 ## CTO — Community Take Over (BACKLOGGED 2026-07-23, not built)
 
 **What it is:** when a token's creator abandons it, the community can take over its fee

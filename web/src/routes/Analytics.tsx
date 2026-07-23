@@ -70,7 +70,11 @@ export default function Analytics() {
 
       {err && (
         <Card className="border-destructive/40 p-4 text-sm text-destructive">
-          {err.includes("indexer") ? "The indexer isn't running yet — start it with npm run dev." : err}
+          {err.includes("indexer")
+            ? import.meta.env.DEV
+              ? "The indexer isn't running yet — start it with npm run dev."
+              : "Analytics are warming up — check back in a moment."
+            : err}
         </Card>
       )}
 
