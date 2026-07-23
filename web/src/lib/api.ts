@@ -130,6 +130,19 @@ export const api = {
     get<{ address: string; count: number; activity: LedgerRow[]; ethUsd: number | null }>(`/ledger/${address}`),
   holdings: (address: string) =>
     get<{ holdings: { token: string; symbol: string; balance: string }[] }>(`/holdings/${address}`),
+  launched: (address: string) =>
+    get<{
+      launched: {
+        token: string;
+        symbol: string;
+        name: string;
+        claimableFeesEth: number;
+        feeWallet: string | null;
+        githubBound: boolean;
+        githubClaimed: boolean;
+      }[];
+      ethUsd: number | null;
+    }>(`/launched/${address}`),
   recordTransfer: (txHash: string, token?: string) => post<{ ok: boolean }>("/transfers", { txHash, token }),
   recordAction: (type: ActionType, txHash: string, token?: string) =>
     post<{ ok: boolean }>("/actions", { type, txHash, token }),

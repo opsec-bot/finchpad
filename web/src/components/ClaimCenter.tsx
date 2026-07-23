@@ -2,17 +2,28 @@ import { useEffect, useState } from "react";
 import type { Address } from "viem";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
-import { BadgeCheck } from "lucide-react";
+import { BadgeCheck, Coins } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { Separator } from "@/components/ui/separator";
 import { useActiveWallet } from "@/components/Wallet";
 import { getWalletClient, publicClient } from "@/lib/tx";
 import { addresses, explorerTx } from "@/lib/chain";
-import { feeRightsRegistryAbi } from "@/lib/abis";
+import { feeRightsRegistryAbi, finchLockerAbi } from "@/lib/abis";
 import { readableError } from "@/lib/trade";
 import { api } from "@/lib/api";
+import { useEthUsd, usd } from "@/lib/money";
 import { navigateTo } from "@/lib/nav";
+
+interface Launched {
+  token: string;
+  symbol: string;
+  name: string;
+  claimableFeesEth: number;
+  githubBound: boolean;
+  githubClaimed: boolean;
+}
 
 interface MenuClaim {
   token: string;
@@ -40,15 +51,24 @@ interface MenuResult {
  */
 export function ClaimCenter({ open, onClose }: { open: boolean; onClose: () => void }) {
   const wallet = useActiveWallet();
+  const ethUsd = useEthUsd();
   const [result, setResult] = useState<MenuResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "oauth" or a token address
   const [claimedNow, setClaimedNow] = useState<Set<string>>(new Set());
+  const [launched, setLaunched] = useState<Launched[] | null>(null);
+
+  const loadLaunched = () => {
+    if (wallet) api.launched(wallet.address).then((r) => setLaunched(r.launched)).catch(() => setLaunched([]));
+  };
 
   useEffect(() => {
     if (!open) return;
     setResult(null);
     setClaimedNow(new Set());
-  }, [open]);
+    setLaunched(null);
+    loadLaunched();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, wallet?.address]);
 
   useEffect(() => {
     async function onMessage(e: MessageEvent) {
@@ -104,9 +124,93 @@ export function ClaimCenter({ open, onClose }: { open: boolean; onClose: () => v
     }
   }
 
+  async function collect(l: Launched) {
+    if (!wallet || !addresses.locker) return;
+    setBusy(l.token);
+    const id = toast.loading(`Collecting $${l.symbol} fees…`);
+    try {
+      const client = await getWalletClient(wallet);
+      const { request } = await publicClient.simulateContract({
+        address: addresses.locker as Address,
+        abi: finchLockerAbi,
+        functionName: "collect",
+        args: [l.token as Address],
+        account: wallet.address as Address,
+      });
+      const hash = await client.writeContract(request);
+      await publicClient.waitForTransactionReceipt({ hash });
+      api.recordAction("collect", hash, l.token).catch(() => {});
+      toast.success(`Collected $${l.symbol} fees`, {
+        id,
+        description: l.githubBound
+          ? "Banked to escrow for the bound GitHub identity."
+          : "Banked to your fee wallet.",
+        action: { label: "View", onClick: () => window.open(explorerTx(hash), "_blank", "noopener") },
+      });
+      loadLaunched(); // refresh collectable amounts
+    } catch (e) {
+      toast.error(`Collect failed for $${l.symbol}`, { id, description: readableError(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const withFees = launched?.filter((l) => l.claimableFeesEth > 0.0000005) ?? [];
+
   return (
     <Modal open={open} onClose={onClose} title="Claim creator fees">
       <div className="flex flex-col gap-4 text-sm">
+        {/* Tokens you launched — collect accrued fees to your fee wallet. Always shown (above
+            the GitHub flow) since it's the common creator case. */}
+        {launched && launched.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Coins className="size-4 text-primary" aria-hidden />
+              Your launched tokens
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Collect trading fees your tokens have earned. Fees route to each token's fee wallet
+              {withFees.length === 0 ? " — nothing waiting to collect right now." : "."}
+            </p>
+            <ul className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+              {launched.map((l) => (
+                <li
+                  key={l.token}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2"
+                >
+                  <button
+                    className="min-w-0 text-left transition-colors hover:text-primary"
+                    onClick={() => {
+                      onClose();
+                      navigateTo(`/tokens/robinhood/${l.token}`);
+                    }}
+                  >
+                    <span className="block truncate font-medium">{l.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      ${l.symbol}
+                      {l.claimableFeesEth > 0.0000005 && (
+                        <span className="ml-1 text-primary">
+                          · {ethUsd ? usd(l.claimableFeesEth * ethUsd) : `${l.claimableFeesEth.toFixed(4)} Ξ`} ready
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy !== null || l.claimableFeesEth <= 0.0000005}
+                    onClick={() => collect(l)}
+                  >
+                    {busy === l.token ? "Collecting…" : "Collect"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {launched && launched.length > 0 && <Separator />}
+
         {!result ? (
           <>
             <p className="text-xs leading-relaxed text-muted-foreground">

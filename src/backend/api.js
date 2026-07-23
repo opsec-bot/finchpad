@@ -456,6 +456,36 @@ async function route(url) {
     };
   }
 
+  // GET /launched/:address — tokens this wallet launched, with collectable (accrued, not-yet-
+  // banked) fees, so a creator can see + collect fees across all their tokens in one place.
+  if (parts[0] === "launched") {
+    if (!isAddress(parts[1])) return { status: 400, body: { error: "invalid address" } };
+    const db = getDb();
+    if (!db) return { status: 200, body: { launched: [] } };
+    const address = parts[1];
+    const launched = await cached(`launched:${address.toLowerCase()}`, 15_000, async () => {
+      const rows = listDeployerLaunches(db, address, 100);
+      const out = await Promise.all(
+        rows.map(async (r) => {
+          const d = await getTokenDetail(r.address, FACTORY).catch(() => null);
+          return {
+            token: r.address,
+            symbol: r.symbol,
+            name: r.name,
+            claimableFeesEth: d?.graduation?.claimableFeesEth ?? 0,
+            feeWallet: d?.feeWallet ?? null,
+            // GitHub-bound tokens escrow instead of paying the launcher — flag so the UI can
+            // point those at the GitHub claim flow rather than a plain collect.
+            githubBound: Boolean(d?.github),
+            githubClaimed: Boolean(d?.github?.claimed),
+          };
+        }),
+      );
+      return out;
+    });
+    return { status: 200, body: { launched, ethUsd: await getEthUsd() } };
+  }
+
   // GET /holdings/:address — indexed tokens this wallet holds a balance of, for the send
   // asset picker. Cheap and cached; a superset read (balanceOf per token) filtered to >0.
   if (parts[0] === "holdings") {

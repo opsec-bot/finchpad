@@ -180,6 +180,36 @@ mascot/hero/placeholder assets were removed.
 - [ ] Later: lock (separate FinchLock product, deferred). CTO backlogged — see the dedicated
       section below.
 
+## Social-link domain validation on the launch form (idea 2026-07-23 — TODO, not built)
+
+User idea: force the X field to be an x.com link and the Telegram field to be a t.me link.
+**Verdict: mildly smart as a UX guardrail, low priority.** It's client-side cosmetic — the
+socials are stored on-chain and a scammer can still paste a REAL t.me link to a fake group, so
+this prevents wrong-field mistakes and obvious junk, not scams. Worth doing cheaply:
+- [ ] X field: accept only `x.com` / `twitter.com` (both are Twitter) URLs or a bare `@handle`
+      (normalize `@handle` → `https://x.com/handle`). Telegram: accept only `t.me` URLs or a
+      bare `@handle`. Website: require `https://`. All fields stay OPTIONAL (empty is valid).
+      Validate on the launch form only (`web/src/routes/Launch.tsx` Field/validate), reject with
+      an inline message before signing. Don't over-engineer — a simple hostname check.
+
+## Burn engine + live burn dashboard (idea 2026-07-23, ref PONS — folds into buyback-burn)
+
+User shared how $PONS does it: fees accumulate → swap → burn every ~15 min, so burn rate tracks
+trading volume in real time ("a live revenue meter" — you can watch US hours wake up in the
+bars). They built a public dashboard reading burn txns live off Robinhood Chain, refreshing
+~90s (stateofblocks.com/dashboards/pons-burn-monitor). 204M / 20.4% of supply burned.
+
+**Verdict: yes, and it's already half-planned.** Two parts:
+- [ ] **The burn engine = the deferred FINCH buyback-burn keeper** (see "Also still missing").
+      Swap accumulated protocol fees → buy FINCH → burn, on a keeper (~15 min like PONS).
+      GATED: FINCH must be launched through finchpad first to have a market; keeper is downstream
+      of fee collection. This is the mechanic — build it before the dashboard has anything to show.
+- [ ] **Live burn dashboard** — a natural fit for our EXISTING infra (SSE live updates +
+      Analytics page + indexer). Index `Transfer(to=0x…dead)`/burn events off the FINCH buyback
+      path, show cumulative burned, % of supply, real-time burn rate, and a live txn feed
+      updating via the SSE stream we already have. Frame it as the "live revenue meter" — burn
+      rate = trading volume proxy. Public, free, on-theme (transparency is finchpad's whole pitch).
+
 ## Skills available in ~/.agents/skills (noted 2026-07-23 — I'd missed these)
 
 The Skill TOOL only lists higgsfield/privy/artifact skills, but `~/.agents/skills/` has a large

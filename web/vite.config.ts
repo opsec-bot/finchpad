@@ -30,6 +30,7 @@ export default defineConfig({
       "/transfers": "http://localhost:8787",
       "/actions": "http://localhost:8787",
       "/holdings": "http://localhost:8787",
+      "/launched": "http://localhost:8787",
     },
   },
 });
