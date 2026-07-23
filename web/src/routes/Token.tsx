@@ -17,6 +17,7 @@ import ClaimFees from "@/components/ClaimFees";
 import PromoteCard from "@/components/PromoteCard";
 import { change24h as change24hOf } from "@/lib/tokenView";
 import { onLive, debounced } from "@/lib/live";
+import { setPageTitle } from "@/lib/format";
 
 interface Trade {
   side: "buy" | "sell";
@@ -45,6 +46,11 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
       setErr((e as Error).message);
     }
   }, [address]);
+
+  // Tab title reflects the token once its symbol is known.
+  useEffect(() => {
+    if (t) setPageTitle(`$${t.symbol}`);
+  }, [t]);
 
   useEffect(() => {
     setT(null);

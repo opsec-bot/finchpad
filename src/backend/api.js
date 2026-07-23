@@ -652,7 +652,7 @@ const MIME = {
 // Un-hashed public files referenced by name (the favicon). An explicit allowlist, not a
 // directory: this process sits next to a signing key and must not become a general static
 // file server. In-app imagery goes through the bundler and lands under /assets/.
-const PUBLIC_FILES = new Set(["/logo.svg"]);
+const PUBLIC_FILES = new Set(["/logo.svg", "/og.png"]);
 
 async function serveAsset(req, pathname, res) {
   // Vite emits build output under /assets with content-hashed names; the handful of un-hashed

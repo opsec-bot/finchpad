@@ -11,7 +11,7 @@ import type { Profile as ProfileData, Position } from "@/lib/api";
 import { onLive, debounced } from "@/lib/live";
 import { navigateTo } from "@/lib/nav";
 import { usd, usdExact, amount as fmtAmount } from "@/lib/money";
-import { shortenAddress } from "@/lib/format";
+import { shortenAddress, setPageTitle } from "@/lib/format";
 import { Balance } from "@/lib/blurBalances";
 import { cn } from "@/lib/utils";
 
@@ -37,9 +37,15 @@ export default function Profile({ username }: { username: string }) {
   useEffect(() => {
     setData(null);
     setErr(null);
+    setPageTitle(`@${username}`);
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
+
+  // Prefer the display name in the tab once loaded.
+  useEffect(() => {
+    if (data) setPageTitle(data.name || `@${data.username}`);
+  }, [data]);
 
   // Live PnL: refetch when this wallet trades, or when ANY trade moves the price of a token
   // it holds (position values are priced at last trade, so every tick can change the PnL).

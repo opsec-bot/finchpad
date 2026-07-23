@@ -24,6 +24,12 @@ export function formatEth(value: number, digits = 4): string {
 }
 
 /** 0x1234…abcd — `chars` hex characters on each side. */
+/** Set the browser-tab title with the finchpad suffix. Routes call this once their data loads
+ *  so the tab reads e.g. "$DEVC · finchpad" rather than the generic route title. */
+export function setPageTitle(label: string): void {
+  document.title = label ? `${label} · finchpad` : "finchpad";
+}
+
 export function shortenAddress(address: string, chars = 4): string {
   if (!address) return "";
   return `${address.slice(0, 2 + chars)}…${address.slice(-chars)}`;

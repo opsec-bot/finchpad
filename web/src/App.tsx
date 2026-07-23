@@ -123,7 +123,8 @@ export default function App() {
   }, []);
 
   // Keep the browser-tab title in step with the route — a static "finchpad" on every page
-  // reads as stale for a linkable SPA.
+  // reads as stale for a linkable SPA. Token and Profile refine this from their loaded data
+  // (see setPageTitle), so they're left generic here until that resolves.
   useEffect(() => {
     const titles: Record<Route["page"], string> = {
       explore: "finchpad — discover tokens",
@@ -131,8 +132,8 @@ export default function App() {
       terms: "Terms · finchpad",
       activity: "Activity · finchpad",
       launch: "Launch a token · finchpad",
-      token: "Token · finchpad",
-      profile: `@${(route as { username?: string }).username ?? ""} · finchpad`,
+      token: "finchpad",
+      profile: "finchpad",
       ref: "finchpad",
     };
     document.title = titles[route.page] ?? "finchpad";
