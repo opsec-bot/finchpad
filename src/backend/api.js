@@ -600,6 +600,15 @@ export const server = createServer(async (req, res) => {
         res.writeHead(302, { location: authed.redirect, "cache-control": "no-store" });
         return res.end();
       }
+      // Popup-mode callback: a tiny page that postMessages the claim to the opener.
+      if (authed.html) {
+        res.writeHead(authed.status, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        return res.end(req.method === "HEAD" ? undefined : authed.html);
+      }
       return send(req, res, authed.status, authed.body, { "cache-control": "no-store" });
     }
 
@@ -637,6 +646,40 @@ export const server = createServer(async (req, res) => {
 // Only listen when run directly, so tests can import and control the server.
 // Compare resolved filesystem paths — string-matching file:// URLs breaks on Windows,
 // where import.meta.url is file:///C:/... (three slashes).
+/**
+ * Deployment-wiring check the digest cross-pinning tests cannot catch: the signer key this
+ * API holds must be the signer the REGISTRY trusts. A mismatch means every claim reverts
+ * BadSignature after the user has done the whole OAuth dance — exactly what happened when
+ * SeedLocal hardcoded the deployer as trustedSigner. Non-fatal: claims are broken, the rest
+ * of the API is fine, so warn loudly and keep serving.
+ */
+async function warnOnSignerMismatch() {
+  const registryAddr = process.env.FINCH_REGISTRY;
+  const signerKey = process.env.FINCH_CLAIM_SIGNER_KEY;
+  if (!registryAddr || !signerKey) return; // claims not configured — nothing to check
+  try {
+    const { privateKeyToAccount } = await import("viem/accounts");
+    const ours = privateKeyToAccount(signerKey).address;
+    const trusted = await publicClient.readContract({
+      address: registryAddr,
+      abi: [{ type: "function", name: "trustedSigner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }],
+      functionName: "trustedSigner",
+    });
+    if (trusted.toLowerCase() !== ours.toLowerCase()) {
+      console.warn(
+        `\n!! CLAIM SIGNER MISMATCH — GitHub claims WILL revert BadSignature\n` +
+          `!!   registry ${registryAddr} trusts ${trusted}\n` +
+          `!!   but FINCH_CLAIM_SIGNER_KEY signs as ${ours}\n` +
+          `!!   Fix: redeploy/seed with FINCH_GITHUB_SIGNER=${ours}, or rotate via setTrustedSigner.\n`,
+      );
+    } else {
+      console.log(`claim signer OK: registry trusts ${ours}`);
+    }
+  } catch (err) {
+    console.warn(`could not verify claim signer against the registry: ${err.shortMessage || err.message}`);
+  }
+}
+
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 if (isDirectRun) {
   server.listen(PORT, () => {
@@ -647,5 +690,6 @@ if (isDirectRun) {
     console.log(`  GET /tokens/:address`);
     console.log(`  GET /tokens/:address/candles?interval=300&blocks=5000`);
     console.log(`  GET /tokens/:address/trades?blocks=5000&limit=100`);
+    void warnOnSignerMismatch();
   });
 }

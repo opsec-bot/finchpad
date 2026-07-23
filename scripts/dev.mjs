@@ -177,6 +177,16 @@ async function main() {
   console.log(`      up on ${RPC}, forked at block ${forkBase}`);
 
   // 2. seed ------------------------------------------------------------------------------
+  // GitHub claims need an EIP-712 signer. On the fork we provision anvil's well-known
+  // account #9 so the WHOLE claim flow works locally: Deploy.s.sol reads the address at
+  // deploy (registry.trustedSigner), the API signs attestations with the matching key.
+  // These are publicly-known anvil dev keys — meaningless outside a local fork. Production
+  // provisions a real key (HSM/KMS; see the signer-key runbook) and never uses this path.
+  const DEV_CLAIM_SIGNER_ADDR = "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720";
+  const DEV_CLAIM_SIGNER_KEY = "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6";
+  process.env.FINCH_GITHUB_SIGNER ||= DEV_CLAIM_SIGNER_ADDR;
+  process.env.FINCH_CLAIM_SIGNER_KEY ||= DEV_CLAIM_SIGNER_KEY;
+
   let deployment = null;
   if (SEED) {
     step(2, "deploying + seeding finchpad");
@@ -209,6 +219,10 @@ async function main() {
     FINCHPAD_LOGS_RPC_URL: RPC,
     FINCHPAD_MIN_BLOCK: String(forkBase),
     VITE_RPC_URL: RPC,
+    // Local-only claim signer (anvil #9) — see the note at the seed step.
+    FINCH_GITHUB_SIGNER: process.env.FINCH_GITHUB_SIGNER,
+    FINCH_CLAIM_SIGNER_KEY: process.env.FINCH_CLAIM_SIGNER_KEY,
+    FINCH_CHAIN_ID: actualChainId,
   };
   if (deployment) {
     Object.assign(updates, {

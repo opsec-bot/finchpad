@@ -75,7 +75,10 @@ export function createGithubAuth({
 
       prune();
       const state = randomBytes(24).toString("hex");
-      states.set(state, { kind, token, claimant, repo: kind === "repo" ? repo : null, at: now() });
+      // mode=popup: the callback renders a page that postMessages the claim back to the
+      // opener window instead of returning raw JSON — the frontend's claim flow.
+      const popup = q.get("mode") === "popup";
+      states.set(state, { kind, token, claimant, repo: kind === "repo" ? repo : null, popup, at: now() });
 
       const authorize = new URL("https://github.com/login/oauth/authorize");
       authorize.searchParams.set("client_id", clientId);
@@ -141,20 +144,34 @@ export function createGithubAuth({
       const digest = registry ? claimDigest(claim) : null;
       const signature = registry && signerKey ? await signClaim(claim, signerKey) : null;
 
-      return {
-        status: 200,
-        body: {
-          token: pending.token,
-          claimant: pending.claimant,
-          claimKind,
-          githubId,
-          identity,
-          deadline,
-          digest,
-          signature,
-          signed: signature !== null,
-        },
+      const payload = {
+        token: pending.token,
+        claimant: pending.claimant,
+        claimKind,
+        githubId,
+        identity,
+        deadline,
+        digest,
+        signature,
+        signed: signature !== null,
       };
+
+      // Popup flow: hand the claim to the window that opened us, then close. The target
+      // origin is OUR origin (opener and popup are served by this same server), so the
+      // payload can't be delivered to a foreign window.
+      if (pending.popup) {
+        const json = JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+        const html = `<!doctype html><meta charset="utf-8"><title>finchpad</title>
+<body style="background:#131d24;color:#9fb6b6;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0">
+<p>GitHub verified — returning to finchpad…</p>
+<script>
+  try { window.opener && window.opener.postMessage({ type: "finchpad:github-claim", claim: ${json} }, window.location.origin); } catch (e) {}
+  setTimeout(function () { window.close(); }, 400);
+</script></body>`;
+        return { status: 200, html };
+      }
+
+      return { status: 200, body: payload };
     }
 
     return { status: 404, body: { error: "not found" } };

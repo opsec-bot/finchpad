@@ -59,7 +59,10 @@ contract SeedLocal is Script {
         factory = new FinchFactory(address(impl), POSITION_MANAGER, WETH, 2000, me, me, SWAP_ROUTER);
         // referral: 10% of the protocol share; graduation: 20%->15% once graduated.
         locker = new FinchLocker(address(factory), POSITION_MANAGER, WETH, me, me, 1000, 500, 0.25 ether);
-        registry = new FeeRightsRegistry(address(locker), me, me);
+        // Claim signer from env so the local claim flow works end to end: npm run dev
+        // provisions a well-known anvil dev key and hands the matching private key to the
+        // API. Falls back to the deployer (claims unusable, harmless) when unset.
+        registry = new FeeRightsRegistry(address(locker), vm.envOr("FINCH_GITHUB_SIGNER", me), me);
         lockVault = new FinchLock();
         featureBoost = new FeatureBoost(me, me, 0.01 ether, 0.05 ether);
         factory.setLocker(address(locker));

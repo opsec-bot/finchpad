@@ -13,6 +13,7 @@ import TradePanel from "@/components/TradePanel";
 import GraduationCard from "@/components/GraduationCard";
 import TrustPanel from "@/components/TrustPanel";
 import TokenActions from "@/components/TokenActions";
+import ClaimFees from "@/components/ClaimFees";
 import { change24h as change24hOf } from "@/lib/tokenView";
 import { onLive, debounced } from "@/lib/live";
 
@@ -148,6 +149,7 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
             onTraded={load}
           />
           {t.graduation && <GraduationCard graduation={t.graduation} />}
+          <ClaimFees token={t} onClaimed={load} />
           <TokenActions token={t} onChanged={load} />
           <TrustPanel token={t} />
         </div>
