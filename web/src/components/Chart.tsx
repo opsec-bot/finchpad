@@ -69,5 +69,7 @@ export default function Chart({ candles, height = 320 }: { candles: Candle[]; he
       </div>
     );
   }
-  return <div ref={ref} className="w-full" />;
+  // role=img + label so assistive tech announces a (skippable) chart — the numeric data it
+  // visualises is already available as text in the stat row and header.
+  return <div ref={ref} className="w-full" role="img" aria-label="Price candlestick chart" />;
 }

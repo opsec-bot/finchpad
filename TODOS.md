@@ -184,15 +184,20 @@ mascot/hero/placeholder assets were removed.
 
 The Skill TOOL only lists higgsfield/privy/artifact skills, but `~/.agents/skills/` has a large
 set NOT surfaced there — read them directly and follow when relevant. Polish-relevant ones:
-- **accessibility** (WCAG 2.2) — APPLIED 2026-07-23: accessible modals (focus trap/restore,
-  scroll lock, aria-labelledby) + aria-labels on placeholder-only inputs. More to do: a full
-  contrast audit (muted-on-dark ratios), keyboard-nav pass on the AccountMenu dropdown (it's a
-  div menu, not a native <select> — should support arrow keys + roving tabindex), and Sparkline/
-  chart text alternatives.
-- **frontend-design** — its guidance says avoid generic choices and "NEVER converge on common
-  choices (Space Grotesk, for example)" — which is exactly the display font we picked. If we
-  ever want a more distinctive brand type, revisit; for now the clean fomo-style direction is a
-  deliberate user call, so keep it.
+- **accessibility** (WCAG 2.2) — APPLIED 2026-07-23 (two passes): accessible modals (focus
+  trap/restore, scroll lock, aria-labelledby); aria-labels on all placeholder-only inputs;
+  **contrast audit PASSED** (oklch→sRGB→WCAG computed: fg/bg 16.8:1, muted/bg 6.8:1,
+  muted/card 6.3:1, primary/bg 8.3:1 — all above AA 4.5); **AccountMenu keyboard nav** (focus
+  first item on open, arrows/Home/End, Escape returns focus to trigger); **chart text alt**
+  (role=img label; Sparkline stays aria-hidden — decorative, data is text elsewhere).
+  Still open: a live axe/Lighthouse run once the browser reconnects (catches things static
+  review can't — reflow at 320px, focus-obscured 2.4.11, live-region announcements).
+- **frontend-design** — APPLIED 2026-07-23: replaced the skill-flagged Space Grotesk display
+  font with **Bricolage Grotesque** (characterful optical-size grotesque, distinctive without
+  breaking the clean trader-terminal feel). Body stays Geist. Further ideas from the skill if
+  we want more (all optional, keep restraint per the clean direction): one orchestrated
+  staggered-reveal on the explore grid load; more atmospheric depth (subtle grain/noise);
+  a signature hover micro-interaction.
 - **gstack-design-review** — a full visual-QA skill (needs the gstack browser tooling + a live
   URL; screenshots before/after). Worth running once the Chrome extension is reconnected for a
   real rendered-pixel pass (spacing, hierarchy, mobile).

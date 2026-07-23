@@ -128,6 +128,35 @@ export function AccountMenu() {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
+  // Keyboard menu (WCAG): focus the first item on open; arrows/Home/End move focus; Escape
+  // closes and returns focus to the trigger.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (open) menuRef.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus();
+  }, [open]);
+  function onMenuKeyDown(e: React.KeyboardEvent) {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(i + 1) % items.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(i - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    }
+  }
+
   const email = user?.email?.address;
   const initials = (email ?? wallet?.address?.slice(2) ?? "?").slice(0, 2).toUpperCase();
   const isEmbedded = wallet?.walletClientType === "privy";
@@ -138,8 +167,9 @@ export function AccountMenu() {
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
-        className="rounded-full ring-1 ring-border/80 transition hover:ring-primary/60"
+        className="rounded-full ring-1 ring-border/80 transition hover:ring-primary/60 focus-visible:ring-2 focus-visible:ring-primary"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
@@ -152,8 +182,11 @@ export function AccountMenu() {
 
       {open && (
         <div
+          ref={menuRef}
+          onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-[calc(100%+8px)] z-50 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl"
           role="menu"
+          aria-label="Account menu"
         >
           <MenuItem
             icon={User}

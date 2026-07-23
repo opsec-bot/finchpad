@@ -78,10 +78,11 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* Geist for UI text — sharper and more technical than Inter; Space Grotesk for display
-     headings (see .display) to give the brand a distinct voice. */
+  /* Geist for UI text — sharper and more technical than Inter. Bricolage Grotesque for display
+     headings (see .display): a characterful optical-size grotesque that gives the brand a
+     distinct voice without sacrificing the clean, trader-terminal feel. */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Space Grotesk", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
