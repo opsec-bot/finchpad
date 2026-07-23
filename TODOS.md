@@ -65,27 +65,33 @@ mascot/hero/placeholder assets were removed.
       it, add `"sms"` to app `loginMethods`. Tradeoff: lowers signup friction and gives an MFA/
       recovery factor, but adds a phone-number PII surface and SMS cost. Decision pending; not
       added to `loginMethods` yet.
-- [ ] **Username / handle on signup (planned — persistence now exists, needs a users table).**
-      After the first email/Google signup, prompt for a sitewide username: auto-generate a
-      default or let the user type one. TWO distinct fields (user call 2026-07-23):
-      **username** — UNIQUE, the identity in URLs; and **name** — freeform display name, can be
-      anything. Username validation: **lowercase `a-z` and `0-9`, underscores only between
-      alphanumerics** — regex `^[a-z0-9]+(?:_[a-z0-9]+)*$`, length ~3–20, **ASCII-only enforced
-      server-side** (user: "ensure people dont put fonts and shit" — reject any non-ASCII
-      before the regex so unicode "font" letters, homoglyphs, and zero-width characters can
-      never appear in a handle; normalize NFKC then reject if it changed, belt-and-braces).
-      Needs a `users` table (add to SQLite db.js + mirror in schema.sql) keyed by Privy DID,
-      with a claim/availability endpoint.
-- [ ] **Referral links move to usernames** once handles exist: `/r/<username>` resolves the
-      handle → wallet address and lands on the launch form with the referrer bound (today the
-      link is `/?ref=0x…`; keep supporting raw-address links as the fallback).
-- [ ] **Your profile — stubbed** ("coming soon" toast). Needs the profile pages + the handle
-      above. URL shape (user call 2026-07-23, fomo-style): **`/profile/<username>`** — the SPA
-      route + API fallback regex already accept it. Profile features: **profile picture upload**
-      (needs an upload endpoint + storage decision — note the API sits next to a signing key,
-      so uploads should live on a separate service or object storage, NOT a POST route on the
-      signer-adjacent API), **bio** (freeform text), display name, and the portfolio view
-      (positions/PnL — needs per-user holdings from the indexer).
+- [x] **Profiles + usernames — SHIPPED 2026-07-23.**
+      - **Backend** (`src/backend/users.js`, own `data/users.db` so the indexer daemon keeps
+        its single-writer lock): users table keyed by wallet address; **username UNIQUE**
+        (URL identity) + **name** freeform + bio (280) + avatar (≤64KB data URI, client-
+        downscaled via LogoPicker — no upload service next to the signing key). Username
+        rules enforced server-side: ASCII-only pre-check + NFKC-must-be-noop + regex
+        `^[a-z0-9]+(?:_[a-z0-9]+)*$` + 3–20 + reserved list — unicode "fonts", homoglyphs
+        and zero-width chars can never enter a handle (7 tests pin this, incl. 𝓯𝓲𝓷𝓬𝓱/ｆｉｎｃｈ/
+        cyrillic/zero-width rejections).
+      - **Auth = wallet signature, no sessions**: updates signed over a payload hash +
+        timestamp (10-min freshness), verified with viem `verifyMessage`. Zero new deps.
+      - **API**: GET `/users/:username` (public profile + positions), `/users/by-address/:a`,
+        `/users/check` (live availability), POST `/users` (the API's only write endpoint,
+        JSON body capped). E2E-verified: signed create, read-back, taken-check, unicode
+        rejection.
+      - **Frontend**: `/profile/<username>` page — avatar/name/@username/bio/joined, portfolio
+        value + total PnL, positions table (holding/value/invested/PnL per token, priced at
+        last trade) derived from the indexer's per-trader swaps; Edit profile for the owner.
+        `ProfileSetup` modal auto-prompts once per session after signup (default suggestion
+        `user_<addr6>`, skippable), live availability check, pfp picker. Account-menu avatar
+        shows the pfp; "Your profile" navigates or opens setup.
+      - **Referral links upgraded**: `/r/<username>` resolves handle → wallet and lands on
+        Launch with the referrer bound; ReferralsModal shows the friendly link when a handle
+        exists (raw `/?ref=0x…` remains the fallback).
+      - Follow-ups: positions ignore transfers outside finchpad pools (stated on the page);
+        display-name homoglyph abuse is allowed by design (only usernames are strict);
+        migrate users table to Postgres alongside the indexer when that migration happens.
 - [x] **Referrals modal — SHIPPED 2026-07-23** (`web/src/components/ReferralsModal.tsx`, opened
       from the account menu). fomo layout: headline total earned (USD), "Earn {referralShareBps}%
       of the fees from every token launched through your link" banner (share read live off the
@@ -94,15 +100,16 @@ mascot/hero/placeholder assets were removed.
       `/?ref=0x…` and is FUNCTIONAL: the Launch form reads `?ref=` and pre-binds it as
       `LaunchParams.referrer` (overridable in advanced). Swap to `/r/<handle>` once usernames
       exist. Figures respect Blur balances.
-- [ ] **SSE live updates (decided over WebSockets, 2026-07-23).** Push new trades / price
-      ticks / launches / stats to the browser instead of polling. Server-Sent Events, NOT WS:
-      data flow is one-directional, SSE runs on the existing zero-dep `node:http` server
-      (a WS lib is exactly the attack surface the backend refuses; hand-rolled WS framing is
-      real code), and EventSource auto-reconnects. Plan: `/events` endpoint fed by the indexer
-      daemon's writes (daemon could notify the API via the DB + a poll of the cursor row, or a
-      local pipe); frontend subscribes on token page (trades/price), explore, and analytics.
-      Indexer→RPC stays polling (cursor+reorg logic is the reliable core; WS subscriptions
-      still need that fallback — revisit only as a prod latency optimization on Alchemy WS).
+- [x] **SSE live updates — SHIPPED 2026-07-23** (decided over WebSockets: one-directional
+      flow, zero-dep `node:http`, native EventSource reconnect). `/events` on the API emits
+      `swap` and `launch` events by watching the indexer cursor (2s SQLite poll, diff-forward);
+      client cap + heartbeat + `x-accel-buffering: no`. Frontend: shared EventSource singleton
+      (`web/src/lib/live.ts`, lazy open / idle close) — token page reloads on its own swaps
+      (800ms debounce), Explore reloads on launches instantly + swaps at 4s debounce (list
+      reload fans out into detail fetches), Analytics nudges stats at 2s debounce between its
+      30s ticks. E2E-verified: real fork swap → daemon → cursor → SSE frame in ~5s.
+      Indexer→RPC stays polling by design (cursor+reorg is the reliable core; Alchemy WS is a
+      prod latency optimization to revisit).
 - [ ] **Profiles (fomo-style).** Profile page: avatar/banner/bio, following/followers,
       portfolio value + PnL chart (24H/7D/30D/ALL), positions table (avg entry/exit/PnL,
       open/closed), swaps table. Needs wallet identity + the R2 persistence layer (per-user
