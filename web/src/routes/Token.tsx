@@ -14,6 +14,7 @@ import GraduationCard from "@/components/GraduationCard";
 import TrustPanel from "@/components/TrustPanel";
 import TokenActions from "@/components/TokenActions";
 import ClaimFees from "@/components/ClaimFees";
+import PromoteCard from "@/components/PromoteCard";
 import { change24h as change24hOf } from "@/lib/tokenView";
 import { onLive, debounced } from "@/lib/live";
 
@@ -61,10 +62,19 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
     const off = onLive("swap", (s) => {
       if (s.token.toLowerCase() !== address.toLowerCase()) return;
 
-      // Header price + market cap tick in place.
-      setT((prev) =>
-        prev ? { ...prev, priceWeth: s.priceWeth, marketCapWeth: s.priceWeth * prev.totalSupply } : prev,
-      );
+      // Header price + market cap tick in place; a buy's 1% pool fee lands on the WETH side,
+      // so pending graduation fees tick with it (sell fees accrue token-side, not WETH).
+      setT((prev) => {
+        if (!prev) return prev;
+        const grad =
+          prev.graduation && s.side === "buy"
+            ? {
+                ...prev.graduation,
+                claimableFeesEth: (prev.graduation.claimableFeesEth ?? 0) + s.wethAmount * 0.01,
+              }
+            : prev.graduation;
+        return { ...prev, priceWeth: s.priceWeth, marketCapWeth: s.priceWeth * prev.totalSupply, graduation: grad };
+      });
 
       // Merge into the candle series (300s buckets — matches the API's default interval).
       setCandles((prev) => {
@@ -148,9 +158,10 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
             tokenIsToken0={t.tokenIsToken0}
             onTraded={load}
           />
-          {t.graduation && <GraduationCard graduation={t.graduation} />}
+          {t.graduation && <GraduationCard graduation={t.graduation} escrowedWeth={t.github?.escrowedWeth} />}
           <ClaimFees token={t} onClaimed={load} />
           <TokenActions token={t} onChanged={load} />
+          <PromoteCard token={t} onChanged={load} />
           <TrustPanel token={t} />
         </div>
       </div>

@@ -39,16 +39,51 @@ export function AccountMenu() {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Once this device has EVER seen a profile for a wallet, the signup auto-prompt becomes
+  // permanently impossible for it — transient nulls during Privy's wallet init were still
+  // slipping past a confirm-fetch and flashing the setup modal at existing users.
+  const hasProfileFlag = (addr: string) => {
+    try {
+      return localStorage.getItem(`finchpad:has-profile:${addr.toLowerCase()}`) === "1";
+    } catch {
+      return false;
+    }
+  };
+  const setProfileFlag = (addr: string) => {
+    try {
+      localStorage.setItem(`finchpad:has-profile:${addr.toLowerCase()}`, "1");
+    } catch {
+      /* storage unavailable — the confirm-fetch still guards */
+    }
+  };
+
   // Load the profile for this wallet; first signup (no profile yet) auto-opens the username
   // prompt once per session — skippable, and always reachable later via "Your profile".
+  // Auto-prompt guards, in order: the has-profile device flag above, then a confirming second
+  // fetch, and finally self-close if a profile materialises while an auto-opened modal is up.
+  const autoOpened = useRef(false);
   useEffect(() => {
     if (!wallet) return setProfile(undefined);
     let alive = true;
-    api.profileByAddress(wallet.address).then(({ profile: p }) => {
+    const addr = wallet.address;
+    api.profileByAddress(addr).then(async ({ profile: p }) => {
       if (!alive) return;
       setProfile(p ?? null);
-      if (!p && !sessionStorage.getItem("finchpad:profile-prompted")) {
+      if (p) return setProfileFlag(addr);
+      if (hasProfileFlag(addr) || sessionStorage.getItem("finchpad:profile-prompted")) return;
+      // Confirm the "no profile" answer before prompting — never on one read alone.
+      await new Promise((r) => setTimeout(r, 800));
+      if (!alive) return;
+      const second = await api.profileByAddress(addr).catch(() => null);
+      if (!alive) return;
+      const confirmed = second ? (second.profile ?? null) : undefined;
+      if (confirmed) {
+        setProfileFlag(addr);
+        return setProfile(confirmed);
+      }
+      if (confirmed === null && !hasProfileFlag(addr)) {
         sessionStorage.setItem("finchpad:profile-prompted", "1");
+        autoOpened.current = true;
         setSetupOpen(true);
       }
     }).catch(() => {
@@ -59,6 +94,15 @@ export function AccountMenu() {
     };
   }, [wallet?.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Self-close an auto-opened setup if the profile materialises after all.
+  useEffect(() => {
+    if (profile && autoOpened.current && setupOpen) {
+      autoOpened.current = false;
+      setSetupOpen(false);
+      setProfileFlag(profile.address);
+    }
+  }, [profile, setupOpen]);
+
   // "Your profile" resolves the truth at click time — never trusts possibly-stale state.
   async function openProfile() {
     if (profile) return navigateTo(`/profile/${profile.username}`);
@@ -66,7 +110,10 @@ export function AccountMenu() {
     try {
       const { profile: p } = await api.profileByAddress(wallet.address);
       setProfile(p ?? null);
-      if (p) return navigateTo(`/profile/${p.username}`);
+      if (p) {
+        setProfileFlag(wallet.address);
+        return navigateTo(`/profile/${p.username}`);
+      }
     } catch {
       /* fall through to setup — the modal's availability check will surface API trouble */
     }
@@ -212,7 +259,10 @@ export function AccountMenu() {
         onClose={() => setSetupOpen(false)}
         existing={profile ?? null}
         onSaved={({ username }) => {
-          if (wallet) api.profileByAddress(wallet.address).then(({ profile: p }) => setProfile(p)).catch(() => {});
+          if (wallet) {
+            setProfileFlag(wallet.address);
+            api.profileByAddress(wallet.address).then(({ profile: p }) => setProfile(p ?? null)).catch(() => {});
+          }
           navigateTo(`/profile/${username}`);
         }}
       />

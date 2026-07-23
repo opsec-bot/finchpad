@@ -17,9 +17,27 @@ interface Graduation {
  * position as people trade but only count once collect() banks them, so the pending amount is
  * shown (and drawn as a translucent bar segment) to make trading visibly move the needle.
  */
-export default function GraduationCard({ graduation }: { graduation: Graduation }) {
+export default function GraduationCard({
+  graduation,
+  escrowedWeth,
+}: {
+  graduation: Graduation;
+  /** Unclaimed creator-share WETH held in escrow (GitHub-bound tokens), raw wei string. */
+  escrowedWeth?: string | null;
+}) {
   const pct = Math.min(100, Math.round(graduation.progress * 100));
   const claimable = graduation.claimableFeesEth ?? 0;
+  const escrowEth = (() => {
+    try {
+      return escrowedWeth ? Number(BigInt(escrowedWeth)) / 1e18 : 0;
+    } catch {
+      return 0;
+    }
+  })();
+  // Lifetime = everything ever banked plus what's sitting uncollected on the position;
+  // distributed = banked minus the slice still held in escrow for an unclaimed identity.
+  const totalFees = graduation.earnedFeesEth + claimable;
+  const distributed = Math.max(0, graduation.earnedFeesEth - escrowEth);
   // What the bar would read if someone collected right now.
   const pendingPct = graduation.thresholdEth > 0
     ? Math.min(100, Math.round(((graduation.earnedFeesEth + claimable) / graduation.thresholdEth) * 100))
@@ -68,6 +86,22 @@ export default function GraduationCard({ graduation }: { graduation: Graduation 
             <span className="tnum text-sm font-medium text-primary">+{formatEth(claimable, 3)}</span>
           </div>
         )}
+        <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs text-muted-foreground">Total fees earned</span>
+            <span className="tnum text-sm font-medium">{formatEth(totalFees, 4)}</span>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs text-muted-foreground">Fees distributed</span>
+            <span className="tnum text-sm font-medium">{formatEth(distributed, 4)}</span>
+          </div>
+          {escrowEth > 0 && (
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs text-muted-foreground">Held in escrow (unclaimed)</span>
+              <span className="tnum text-sm font-medium text-highlight">{formatEth(escrowEth, 4)}</span>
+            </div>
+          )}
+        </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {graduation.graduated
             ? "This token has graduated. Its protocol fee share has dropped and the freed bps route to the creator."

@@ -338,7 +338,8 @@ async function route(url) {
   // GET /users/by-address/:address — profile lookup for the signed-in user.
   if (parts[0] === "users" && parts[1] === "by-address") {
     if (!isAddress(parts[2])) return { status: 400, body: { error: "invalid address" } };
-    return { status: 200, body: { profile: getUserByAddress(parts[2]) } };
+    // no-store: a cached "no profile yet" answer must never outlive profile creation.
+    return { status: 200, body: { profile: getUserByAddress(parts[2]) }, headers: { "cache-control": "no-store" } };
   }
 
   // GET /users/check?u=<username>&address=0x… — live availability for the setup form.
@@ -418,7 +419,7 @@ async function route(url) {
 
   // GET /tokens/:address
   if (parts.length === 2) {
-    const detail = await cached(`detail:${token}`, 10_000, () => getTokenDetail(token, FACTORY));
+    const detail = await cached(`detail:${token}`, 3_000, () => getTokenDetail(token, FACTORY));
     return { status: 200, body: detail };
   }
 
@@ -459,7 +460,7 @@ async function route(url) {
   }
 
   // Sub-resources need pool + ordering, which come from the detail read.
-  const detail = await cached(`detail:${token}`, 10_000, () => getTokenDetail(token, FACTORY));
+  const detail = await cached(`detail:${token}`, 3_000, () => getTokenDetail(token, FACTORY));
   const opts = { token, pool: detail.pool, tokenIsToken0: detail.tokenIsToken0, blocks: boundedBlocks(q.get("blocks")) };
 
   // GET /tokens/:address/candles
@@ -642,8 +643,8 @@ export const server = createServer(async (req, res) => {
       }
     }
 
-    const { status, body } = await route(url);
-    send(req, res, status, body);
+    const { status, body, headers } = await route(url);
+    send(req, res, status, body, headers);
   } catch (err) {
     send(req, res, 500, { error: err.shortMessage || err.message || "internal error" });
   }
