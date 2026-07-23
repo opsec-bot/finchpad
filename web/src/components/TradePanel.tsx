@@ -230,6 +230,7 @@ export default function TradePanel({
         </div>
         <div className="relative">
           <Input
+            aria-label={side === "buy" ? "Amount to pay" : `Amount of ${symbol} to sell`}
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}

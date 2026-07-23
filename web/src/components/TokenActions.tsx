@@ -194,6 +194,7 @@ export default function TokenActions({ token, onChanged }: { token: TokenDetail;
               </button>
             </div>
             <Input
+              aria-label={`Amount of ${token.symbol} to burn`}
               inputMode="decimal"
               value={burnAmt}
               onChange={(e) => setBurnAmt(e.target.value.replace(/[^0-9.]/g, ""))}
@@ -225,6 +226,7 @@ export default function TokenActions({ token, onChanged }: { token: TokenDetail;
               {token.feeWallet && <>Currently {shortenAddress(token.feeWallet, 4)}.</>}
             </p>
             <Input
+              aria-label="New fee wallet address"
               value={newFeeWallet}
               onChange={(e) => setNewFeeWallet(e.target.value.trim())}
               placeholder="0x… new fee wallet"

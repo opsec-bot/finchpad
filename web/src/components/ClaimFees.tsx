@@ -166,6 +166,7 @@ export default function ClaimFees({ token, onClaimed }: { token: TokenDetail; on
 
         {isRepo && (
           <Input
+            aria-label="GitHub owner/repository"
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
             placeholder="owner/repository"

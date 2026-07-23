@@ -169,6 +169,7 @@ export function SendModal({ open, onClose }: { open: boolean; onClose: () => voi
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
               <Input
+                aria-label="Recipient username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="username"
@@ -199,6 +200,7 @@ export function SendModal({ open, onClose }: { open: boolean; onClose: () => voi
         ) : (
           <div className="flex flex-col gap-1">
             <Input
+              aria-label="Recipient address"
               value={address}
               onChange={(e) => setAddress(e.target.value.trim())}
               placeholder="0x…"
@@ -215,6 +217,7 @@ export function SendModal({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="flex flex-col gap-1.5">
           <span className="text-xs text-muted-foreground">Asset</span>
           <select
+            aria-label="Asset to send"
             value={asset ? asset.token : "eth"}
             onChange={(e) => {
               setAsset(e.target.value === "eth" ? null : holdings.find((h) => h.token === e.target.value) ?? null);
@@ -252,6 +255,7 @@ export function SendModal({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div className="relative">
             <Input
+              aria-label="Amount to send"
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
