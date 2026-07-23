@@ -57,6 +57,7 @@ export const tokenAbi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
   "function logo() view returns (string)",
   "function description() view returns (string)",
+  "function SUPPLY() view returns (uint256)",
   "function liquidityPool() view returns (address)",
   "function socials() view returns (string twitter, string telegram, string discord, string website, string farcaster)",
 ]);
@@ -108,6 +109,12 @@ export const lockerAbi = parseAbi([
   "function tokenProtocolFeeShares(address token) view returns (uint256)",
   "function feeRedirects(address token) view returns (address)",
   "function protocolFeeRecipient() view returns (address)",
+]);
+
+// Only collect(): used via eth_call (impersonating the locker, which owns every position) to
+// read a position's accrued-but-uncollected fees without sending a transaction.
+export const positionManagerAbi = parseAbi([
+  "function collect((uint256 tokenId,address recipient,uint128 amount0Max,uint128 amount1Max) params) payable returns (uint256 amount0, uint256 amount1)",
 ]);
 
 export const poolAbi = parseAbi([

@@ -12,6 +12,7 @@ import TradeHistory from "@/components/TradeHistory";
 import TradePanel from "@/components/TradePanel";
 import GraduationCard from "@/components/GraduationCard";
 import TrustPanel from "@/components/TrustPanel";
+import TokenActions from "@/components/TokenActions";
 import { change24h as change24hOf } from "@/lib/tokenView";
 
 interface Trade {
@@ -59,6 +60,9 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
   // 24h volume from the indexed window, in ETH; change from the candle series.
   const volumeWeth = trades.reduce((sum, x) => sum + x.wethAmount, 0);
   const change = change24hOf(candles);
+  // ATH market cap from the highest candle in the indexed window (price × fixed supply).
+  const athPrice = candles.length ? Math.max(...candles.map((c) => c.h)) : null;
+  const athMarketCapWeth = athPrice !== null ? athPrice * t.totalSupply : null;
 
   return (
     <div className="flex flex-col gap-4 rise">
@@ -72,7 +76,10 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
       </button>
 
       <TokenHeader token={t} change24h={change} />
-      <StatRow token={t} volumeWeth={volumeWeth} />
+      {t.description && (
+        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground text-pretty">{t.description}</p>
+      )}
+      <StatRow token={t} volumeWeth={volumeWeth} athMarketCapWeth={athMarketCapWeth} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left: chart + trades */}
@@ -93,6 +100,7 @@ export default function Token({ address, onBack }: { address: string; onBack: ()
             onTraded={load}
           />
           {t.graduation && <GraduationCard graduation={t.graduation} />}
+          <TokenActions token={t} onChanged={load} />
           <TrustPanel token={t} />
         </div>
       </div>

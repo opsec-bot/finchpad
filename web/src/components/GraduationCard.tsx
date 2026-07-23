@@ -8,14 +8,24 @@ interface Graduation {
   thresholdEth: number;
   graduated: boolean;
   progress: number;
+  claimableFeesEth?: number | null;
 }
 
 /**
  * Graduation progress, measured in fees the token has actually earned — the same number that
- * drives the fee discount, so a donation to the pool cannot move it.
+ * drives the fee discount, so a donation to the pool cannot move it. Fees accrue on the LP
+ * position as people trade but only count once collect() banks them, so the pending amount is
+ * shown (and drawn as a translucent bar segment) to make trading visibly move the needle.
  */
 export default function GraduationCard({ graduation }: { graduation: Graduation }) {
   const pct = Math.min(100, Math.round(graduation.progress * 100));
+  const claimable = graduation.claimableFeesEth ?? 0;
+  // What the bar would read if someone collected right now.
+  const pendingPct = graduation.thresholdEth > 0
+    ? Math.min(100, Math.round(((graduation.earnedFeesEth + claimable) / graduation.thresholdEth) * 100))
+    : pct;
+  const showPending = !graduation.graduated && claimable > 0.0005;
+
   return (
     <Card className="gap-0 p-0">
       <CardHeader className="flex-row items-center justify-between border-b border-border px-4 py-3">
@@ -32,8 +42,18 @@ export default function GraduationCard({ graduation }: { graduation: Graduation 
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-4 py-4">
-        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+        <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+          {/* Pending segment first (wider), banked progress drawn on top of it. */}
+          {showPending && (
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-primary/35 transition-all duration-500"
+              style={{ width: `${pendingPct}%` }}
+            />
+          )}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
         </div>
         <div className="flex items-baseline justify-between">
           <span className="text-xs text-muted-foreground">Fees earned toward graduation</span>
@@ -42,10 +62,18 @@ export default function GraduationCard({ graduation }: { graduation: Graduation 
             <span className="text-muted-foreground">/ {graduation.thresholdEth} ETH</span>
           </span>
         </div>
+        {showPending && (
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs text-muted-foreground">Ready to collect</span>
+            <span className="tnum text-sm font-medium text-primary">+{formatEth(claimable, 3)}</span>
+          </div>
+        )}
         <p className="text-xs leading-relaxed text-muted-foreground">
           {graduation.graduated
             ? "This token has graduated. Its protocol fee share has dropped and the freed bps route to the creator."
-            : "When lifetime fees reach the threshold, the token's protocol share drops and the freed bps route to the creator."}
+            : showPending
+              ? "Trading fees accrue on the locked position and count once collected — hit Collect fees below to bank them toward graduation."
+              : "When lifetime fees reach the threshold, the token's protocol share drops and the freed bps route to the creator."}
         </p>
       </CardContent>
     </Card>

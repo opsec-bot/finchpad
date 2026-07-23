@@ -24,8 +24,11 @@ export interface TokenDetail {
   name: string;
   symbol: string;
   logo: string | null;
+  description: string | null;
   decimals: number;
   totalSupply: number;
+  /** Initial supply minus current — tokens destroyed via burn(). null for foreign tokens. */
+  burnedTokens: number | null;
   pool: `0x${string}`;
   tokenIsToken0: boolean;
   priceWeth: number;
@@ -35,7 +38,14 @@ export interface TokenDetail {
   deployer: `0x${string}` | null;
   feeWallet: `0x${string}` | null;
   github: GithubBinding | null;
-  graduation: { earnedFeesEth: number; thresholdEth: number; graduated: boolean; progress: number } | null;
+  graduation: {
+    earnedFeesEth: number;
+    thresholdEth: number;
+    graduated: boolean;
+    progress: number;
+    /** Fees earned by trading but not yet banked by collect(). null when unreadable. */
+    claimableFeesEth: number | null;
+  } | null;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -47,7 +57,25 @@ async function get<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export interface ProtocolStatsResponse {
+  allTime: { volumeWeth: number; trades: number };
+  last24h: { volumeWeth: number; trades: number; traders: number; tokensTraded: number };
+  tokensLaunched: number;
+  combined: { marketCapWeth: number; liquidityWeth: number };
+  ethUsd: number | null;
+}
+
+export interface ReferralsResponse {
+  referrer: string;
+  totalWeth: number;
+  last7dWeth: number;
+  tokens: { token: string; symbol: string; earnedWeth: number; payouts: number; lastTs: number }[];
+  ethUsd: number | null;
+}
+
 export const api = {
+  stats: () => get<ProtocolStatsResponse>("/stats"),
+  referrals: (address: string) => get<ReferralsResponse>(`/referrals/${address}`),
   health: () => get<{ ok: boolean; factory: string; featureBoost: string | null; ethUsd: number | null }>("/health"),
   tokens: (blocks = 3000, limit = 25) =>
     get<{ factory: string; count: number; tokens: TokenSummary[] }>(`/tokens?blocks=${blocks}&limit=${limit}`),

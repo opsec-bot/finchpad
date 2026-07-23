@@ -6,7 +6,7 @@ import { publicClient } from "./chain.js";
 import { getLogsChunked } from "./logs.js";
 import {
   PONS, SWAP, TOKEN_LAUNCHED, FINCH_LAUNCHED, FEATURED,
-  factoryAbi, finchFactoryAbi, finchLockerAbi, poolAbi, tokenAbi,
+  factoryAbi, finchFactoryAbi, finchLockerAbi, poolAbi, positionManagerAbi, tokenAbi,
 } from "./contracts.js";
 import { toCandles } from "./ohlc.js";
 
@@ -29,15 +29,23 @@ export function priceFromSqrt(sqrtPriceX96, tokenIsToken0) {
 
 /** Full detail for one launched token: metadata, pool, live price, graduation. */
 export async function getTokenDetail(token, factoryAddress) {
-  const [name, symbol, decimals, totalSupply, pool, logo] = await Promise.all([
+  const [name, symbol, decimals, totalSupply, pool, logo, description] = await Promise.all([
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "name" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "symbol" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "decimals" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "totalSupply" }),
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "liquidityPool" }),
-    // Creator artwork. Optional — older/foreign tokens may not expose it.
+    // Creator artwork + blurb. Optional — older/foreign tokens may not expose them.
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "logo" }).catch(() => ""),
+    publicClient.readContract({ address: token, abi: tokenAbi, functionName: "description" }).catch(() => ""),
   ]);
+
+  // FinchToken mints a fixed SUPPLY once and is burn-only after that, so anything below the
+  // initial supply has been burned. Foreign tokens may not expose SUPPLY() — burned is null
+  // for those rather than a guess.
+  const initialSupply = await publicClient
+    .readContract({ address: token, abi: tokenAbi, functionName: "SUPPLY" })
+    .catch(() => null);
 
   const tokenIsToken0 = token.toLowerCase() < PONS.weth.toLowerCase();
 
@@ -60,8 +68,11 @@ export async function getTokenDetail(token, factoryAddress) {
   // pons exposes getLaunchedToken on the factory; finchpad does not — our launch state lives
   // in the locker, reached via factory.locker(). Try pons' shape first, then ours.
   let launched = ponsLaunched?.exists === true ? ponsLaunched : null;
+  // Captured from the finch branch so claimable fees can be read off the position below.
+  let positionId = null;
+  let lockerAddr = null;
   if (!launched) {
-    const lockerAddr = await publicClient
+    lockerAddr = await publicClient
       .readContract({ address: factoryAddress, abi: finchFactoryAbi, functionName: "locker" })
       .catch(() => null);
     if (lockerAddr) {
@@ -72,6 +83,7 @@ export async function getTokenDetail(token, factoryAddress) {
       //        claimKind, githubId, githubClaimed, escrowDeadline, escrowedToken,
       //        escrowedWeth, exists, referrer, lifetimeWethFees
       if (l && l[11] === true) {
+        positionId = l[0];
         launched = {
           exists: true,
           deployer: l[3],
@@ -93,18 +105,43 @@ export async function getTokenDetail(token, factoryAddress) {
   const priceWeth = priceFromSqrt(slot0[0], tokenIsToken0);
   const supplyTokens = Number(formatEther(totalSupply));
 
+  // Accrued-but-uncollected WETH fees on the LP position. Graduation only advances when
+  // collect() banks fees, so without this the bar sits still through heavy trading and reads
+  // as broken. Read via eth_call impersonating the locker (the position's owner) — free, and
+  // only ever counts real swap fees, so it can't be inflated by donations.
+  const MAX_U128 = (1n << 128n) - 1n;
+  let claimableWeth = null;
+  if (positionId !== null && lockerAddr) {
+    const pending = await publicClient
+      .simulateContract({
+        address: PONS.positionManager,
+        abi: positionManagerAbi,
+        functionName: "collect",
+        args: [{ tokenId: positionId, recipient: lockerAddr, amount0Max: MAX_U128, amount1Max: MAX_U128 }],
+        account: lockerAddr,
+      })
+      .then((r) => r.result)
+      .catch(() => null);
+    if (pending) claimableWeth = Number(formatEther(tokenIsToken0 ? pending[1] : pending[0]));
+  }
+
   // getLaunchedToken returns a ZERO-FILLED struct (exists=false) for tokens that didn't come
   // from this factory, rather than reverting. Passing those zeros through would report a
   // deployer of 0x0 and a 0% pool fee as though they were real. Only trust it when exists.
   const known = launched?.exists === true;
+
+  const initialTokens = initialSupply !== null ? Number(formatEther(initialSupply)) : null;
+  const burnedTokens = initialTokens !== null ? Math.max(0, initialTokens - supplyTokens) : null;
 
   return {
     address: token,
     name,
     symbol,
     logo: logo || null,
+    description: description || null,
     decimals,
     totalSupply: supplyTokens,
+    burnedTokens,
     pool,
     tokenIsToken0,
     priceWeth,
@@ -135,6 +172,9 @@ export async function getTokenDetail(token, factoryAddress) {
           thresholdEth: Number(formatEther(graduation[1])),
           graduated: graduation[2],
           progress: graduation[1] > 0n ? Number((graduation[0] * 10000n) / graduation[1]) / 10000 : 0,
+          // Fees already earned by trading but not yet banked by collect(). null when the
+          // position can't be read (pons tokens, foreign tokens).
+          claimableFeesEth: claimableWeth,
         }
       : null,
   };
