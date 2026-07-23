@@ -33,6 +33,20 @@ export function usersDb() {
       created_ts  INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_ts  INTEGER NOT NULL DEFAULT (unixepoch())
     );
+
+    -- ETH transfers initiated through finchpad's Send/Withdraw. Rows are inserted only after
+    -- the API verifies the transaction ON-CHAIN (from/to/value read from the receipt), so the
+    -- ledger can't be spoofed by posting arbitrary hashes with made-up amounts.
+    CREATE TABLE IF NOT EXISTS transfers (
+      tx_hash     TEXT PRIMARY KEY,
+      from_addr   TEXT NOT NULL,                  -- lowercase
+      to_addr     TEXT NOT NULL,                  -- lowercase
+      value_eth   REAL NOT NULL,
+      ts          INTEGER NOT NULL,
+      block       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS transfers_from_idx ON transfers (from_addr, ts DESC);
+    CREATE INDEX IF NOT EXISTS transfers_to_idx ON transfers (to_addr, ts DESC);
   `);
   return _db;
 }
@@ -143,6 +157,23 @@ export function getUserByUsername(username) {
 export function getUserByAddress(address) {
   if (typeof address !== "string") return null;
   return pub(usersDb().prepare("SELECT * FROM users WHERE address = ?").get(address.toLowerCase()));
+}
+
+// --- transfers (Send / Withdraw ledger) --------------------------------------------------
+
+export function insertTransfer({ txHash, from, to, valueEth, ts, block }) {
+  usersDb().prepare(
+    `INSERT OR IGNORE INTO transfers (tx_hash, from_addr, to_addr, value_eth, ts, block)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(txHash.toLowerCase(), from.toLowerCase(), to.toLowerCase(), valueEth, ts, block);
+}
+
+export function listTransfers(address, limit = 100) {
+  const a = address.toLowerCase();
+  return usersDb().prepare(
+    `SELECT tx_hash, from_addr, to_addr, value_eth, ts FROM transfers
+     WHERE from_addr = ? OR to_addr = ? ORDER BY ts DESC LIMIT ?`
+  ).all(a, a, limit);
 }
 
 export function usernameAvailable(username, forAddress = null) {

@@ -15,7 +15,7 @@ import { shortenAddress } from "@/lib/format";
 import { Balance } from "@/lib/blurBalances";
 import { cn } from "@/lib/utils";
 
-type Full = ProfileData & { positions: Position[]; ethUsd: number | null };
+type Full = ProfileData & { positions: Position[]; ethBalance: number; ethUsd: number | null };
 
 /**
  * Public profile: identity (avatar, name, @username, bio) plus the wallet's traded positions
@@ -69,7 +69,8 @@ export default function Profile({ username }: { username: string }) {
 
   const eth = data.ethUsd;
   const isOwn = wallet && wallet.address.toLowerCase() === data.address;
-  const totalValue = data.positions.reduce((s, p) => s + p.valueWeth, 0);
+  // Portfolio value = the whole account: ETH balance + every token position at last trade.
+  const totalValue = data.ethBalance + data.positions.reduce((s, p) => s + p.valueWeth, 0);
   const totalPnl = data.positions.reduce((s, p) => s + p.pnlWeth, 0);
   const inUsd = (w: number) => (eth ? usdExact(w * eth) : `${w.toFixed(4)} Ξ`);
 
@@ -133,8 +134,8 @@ export default function Profile({ username }: { username: string }) {
       {/* Positions */}
       <Card className="gap-0 overflow-hidden p-0">
         <div className="border-b border-border px-4 py-3 text-sm font-medium">Positions</div>
-        {data.positions.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No trades through finchpad yet.</p>
+        {data.positions.length === 0 && data.ethBalance <= 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No holdings yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -148,6 +149,19 @@ export default function Profile({ username }: { username: string }) {
                 </tr>
               </thead>
               <tbody>
+                {data.ethBalance > 0 && (
+                  <tr className="border-t border-border/60">
+                    <td className="px-4 py-2.5 font-medium">ETH</td>
+                    <td className="tnum px-4 py-2.5 text-right">
+                      <Balance>{data.ethBalance.toLocaleString("en-US", { maximumFractionDigits: 4 })}</Balance>
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right">
+                      <Balance>{eth ? usd(data.ethBalance * eth) : `${data.ethBalance.toFixed(4)} Ξ`}</Balance>
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted-foreground">—</td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted-foreground">—</td>
+                  </tr>
+                )}
                 {data.positions.map((p) => (
                   <tr
                     key={p.token}
@@ -180,8 +194,8 @@ export default function Profile({ username }: { username: string }) {
           </div>
         )}
         <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-          Positions are trades through finchpad pools, priced at each token's last trade. Transfers outside the pools
-          aren't counted.
+          Holdings are live on-chain balances (ETH + every finchpad token), valued at each token's last trade. PnL
+          compares against what was bought/sold through finchpad pools.
         </p>
       </Card>
 

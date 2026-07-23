@@ -257,6 +257,41 @@ export function getTraderPositions(db, trader) {
   });
 }
 
+/** Last traded price (WETH per token) for a token, 0 when it has never traded. */
+export function lastTradePrice(db, token) {
+  const row = db.prepare(
+    "SELECT price_weth FROM swaps WHERE token = ? ORDER BY ts DESC, block_number DESC LIMIT 1"
+  ).get(token.toLowerCase());
+  return row?.price_weth ?? 0;
+}
+
+/** A trader's raw swaps, newest first — merged into the activity ledger. */
+export function listTraderSwaps(db, trader, limit = 100) {
+  return db.prepare(
+    `SELECT s.token, COALESCE(t.symbol,'?') AS symbol, s.side, s.token_amount, s.weth_amount,
+            s.ts, s.tx_hash
+     FROM swaps s LEFT JOIN tokens t ON t.address = s.token
+     WHERE s.trader = ? ORDER BY s.ts DESC LIMIT ?`
+  ).all(trader.toLowerCase(), limit);
+}
+
+/** Tokens this address launched, newest first — merged into the activity ledger. */
+export function listDeployerLaunches(db, deployer, limit = 50) {
+  return db.prepare(
+    `SELECT address, symbol, name, launch_block, launch_tx, created_ts
+     FROM tokens WHERE deployer = ? ORDER BY launch_block DESC LIMIT ?`
+  ).all(deployer.toLowerCase(), limit);
+}
+
+/** A referrer's payout events, newest first — merged into the activity ledger. */
+export function listReferralPayouts(db, referrer, limit = 100) {
+  return db.prepare(
+    `SELECT r.token, COALESCE(t.symbol,'?') AS symbol, r.weth_amount, r.ts, r.tx_hash
+     FROM referral_payouts r LEFT JOIN tokens t ON t.address = r.token
+     WHERE r.referrer = ? ORDER BY r.ts DESC LIMIT ?`
+  ).all(referrer.toLowerCase(), limit);
+}
+
 /** A referrer's earnings, total and per token — the referrals modal reads this. */
 export function getReferralEarnings(db, referrer) {
   const rows = db.prepare(

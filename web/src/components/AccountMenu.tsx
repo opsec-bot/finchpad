@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrivy, useLinkAccount, useMfaEnrollment } from "@privy-io/react-auth";
-import { BadgeDollarSign, Copy, EyeOff, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
+import { BadgeDollarSign, Copy, EyeOff, History, LogOut, Settings, User, Users, type LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -177,6 +177,7 @@ export function AccountMenu() {
           </button>
           <MenuItem icon={Users} label="Referrals" onClick={() => (setOpen(false), setReferralsOpen(true))} />
           <MenuItem icon={BadgeDollarSign} label="Claim creator fees" onClick={() => (setOpen(false), setClaimsOpen(true))} />
+          <MenuItem icon={History} label="Activity" onClick={() => (setOpen(false), navigateTo("/activity"))} />
           <div className="my-1 h-px bg-border" />
           <MenuItem icon={LogOut} label="Log out" destructive onClick={() => (setOpen(false), logout())} />
         </div>

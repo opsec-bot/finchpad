@@ -26,6 +26,8 @@ export default defineConfig({
       "/referrals": "http://localhost:8787",
       "/users": "http://localhost:8787",
       "/events": "http://localhost:8787",
+      "/ledger": "http://localhost:8787",
+      "/transfers": "http://localhost:8787",
     },
   },
 });

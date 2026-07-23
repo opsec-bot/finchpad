@@ -109,11 +109,27 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return json;
 }
 
+export interface LedgerRow {
+  type: "buy" | "sell" | "launch" | "referral" | "send" | "withdraw" | "receive";
+  token?: string;
+  symbol?: string;
+  tokenAmount?: number;
+  amountEth?: number;
+  counterparty?: string;
+  counterpartyUsername?: string | null;
+  ts: number;
+  txHash: string;
+}
+
 export const api = {
+  ledger: (address: string) =>
+    get<{ address: string; count: number; activity: LedgerRow[]; ethUsd: number | null }>(`/ledger/${address}`),
+  recordTransfer: (txHash: string) => post<{ ok: boolean }>("/transfers", { txHash }),
   stats: () => get<ProtocolStatsResponse>("/stats"),
   referrals: (address: string) => get<ReferralsResponse>(`/referrals/${address}`),
   profileByAddress: (address: string) => get<{ profile: Profile | null }>(`/users/by-address/${address}`),
-  profile: (username: string) => get<Profile & { positions: Position[]; ethUsd: number | null }>(`/users/${username}`),
+  profile: (username: string) =>
+    get<Profile & { positions: Position[]; ethBalance: number; ethUsd: number | null }>(`/users/${username}`),
   usernameCheck: (u: string, address?: string) =>
     get<{ available: boolean; reason?: string }>(
       `/users/check?u=${encodeURIComponent(u)}${address ? `&address=${address}` : ""}`,

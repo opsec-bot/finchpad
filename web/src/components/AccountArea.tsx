@@ -3,6 +3,7 @@ import { usePrivy, useFundWallet } from "@privy-io/react-auth";
 import { formatEther } from "viem";
 import { Button } from "@/components/ui/button";
 import { AccountMenu } from "@/components/AccountMenu";
+import { SendModal } from "@/components/SendModal";
 import { useActiveWallet } from "@/components/Wallet";
 import { Balance } from "@/lib/blurBalances";
 import { onLive } from "@/lib/live";
@@ -22,6 +23,7 @@ export function AccountArea() {
   const wallet = useActiveWallet();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [ethUsd, setEthUsd] = useState<number | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -92,12 +94,19 @@ export function AccountArea() {
                 ? `${eth.toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH`
                 : "—"}
           </Balance>
-          <button onClick={deposit} className="text-xs font-medium text-primary hover:underline">
-            Deposit
-          </button>
+          <span className="flex items-center gap-1.5 text-xs">
+            <button onClick={deposit} className="font-medium text-primary hover:underline">
+              Deposit
+            </button>
+            <span className="text-muted-foreground">·</span>
+            <button onClick={() => setSendOpen(true)} className="font-medium text-primary hover:underline">
+              Send
+            </button>
+          </span>
         </div>
       )}
       <AccountMenu />
+      <SendModal open={sendOpen} onClose={() => setSendOpen(false)} />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import Launch from "@/routes/Launch";
 import Token from "@/routes/Token";
 import Analytics from "@/routes/Analytics";
 import Terms from "@/routes/Terms";
+import Activity from "@/routes/Activity";
 import Profile from "@/routes/Profile";
 import { api } from "@/lib/api";
 import { onNavigate } from "@/lib/nav";
@@ -31,6 +32,7 @@ type Route =
   | { page: "launch" }
   | { page: "analytics" }
   | { page: "terms" }
+  | { page: "activity" }
   | { page: "profile"; username: string }
   | { page: "ref"; username: string };
 
@@ -44,6 +46,7 @@ function parsePath(pathname: string): Route {
   if (pathname === "/launch") return { page: "launch" };
   if (pathname === "/analytics") return { page: "analytics" };
   if (pathname === "/terms") return { page: "terms" };
+  if (pathname === "/activity") return { page: "activity" };
   return { page: "explore" };
 }
 
@@ -61,6 +64,8 @@ function pathFor(route: Route): string {
       return "/analytics";
     case "terms":
       return "/terms";
+    case "activity":
+      return "/activity";
     default:
       return "/";
   }
@@ -171,6 +176,8 @@ export default function App() {
           <Analytics />
         ) : route.page === "terms" ? (
           <Terms />
+        ) : route.page === "activity" ? (
+          <Activity />
         ) : route.page === "profile" ? (
           <Profile username={route.username} />
         ) : route.page === "ref" ? (

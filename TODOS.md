@@ -149,32 +149,23 @@ mascot/hero/placeholder assets were removed.
       `/launch`, `/analytics`, `/terms`; API serves the app shell for these paths (SPA
       fallback) so deep links and refreshes work. `?ref=` survives navigation.
 
-## Send / Withdraw + platform transaction ledger (added 2026-07-23, user request)
+## Send / Withdraw + platform transaction ledger — SHIPPED 2026-07-23
 
-- [ ] **Send function.** Two destinations from one surface (likely a modal off the top bar or
-      account menu):
-      1. **Send to a platform user by USERNAME** — resolve handle → wallet address via the
-         existing `/users/:username` (usernames are unique + strictly validated, so this is
-         safe to build on). Show the resolved name+avatar before confirming so fat-fingering
-         a handle is visible. ETH first; per-token sends later maybe.
-      2. **Withdraw to any external ETH address** — plain transfer to a pasted 0x address
-         (checksum-validate, confirm screen).
-      Both go through the embedded wallet → one-click + MFA-for-transactions apply
-      automatically. Amount entry should reuse the USD⇄ETH toggle pattern from TradePanel.
-- [ ] **Platform transaction ledger — a user-visible history of everything they did ON
-      finchpad**: buys, sells, launches, burns, collects, claims, boosts/features, referral
-      payouts, sends/withdrawals. Scope call (user): only platform activity — anything else
-      (external transfers in, etc.) they can use the Robinhood Chain explorer for; link out
-      to Blockscout per-address for the full picture.
-      Data: most of it is ALREADY indexed (swaps by trader, referral payouts by referrer;
-      launches by deployer). Missing pieces: sends/withdrawals (record at send time in a
-      `transfers` table — they're initiated by us so no chain scan needed; note: a DB-recorded
-      send that fails on-chain must be reconciled, or record only after receipt), burns /
-      collects / claims / boost purchases by tx sender (either record client-side at receipt
-      like sends, or scan the relevant events by actor in the daemon — event-scan is the
-      honest source).
-      Surface: a "History" / "Activity" tab — natural home is the profile page (own view) or
-      the account menu. Each row: type, token, amounts, time, tx link to Blockscout.
+- [x] **SendModal** ("Deposit · Send" in the top bar): send to a platform user by USERNAME
+      (live-resolved with name+avatar shown before money moves), or withdraw to any pasted
+      0x address. USD⇄ETH amount toggle, balance max-fill (keeps gas dust), self-send and
+      insufficient-balance guards, embedded wallet → one-click + MFA apply.
+- [x] **Trustless ledger recording**: after receipt, the client POSTs only the TX HASH; the
+      server reads from/to/value FROM THE CHAIN (mined, successful, value>0) before inserting
+      into a `transfers` table in users.db — a spoofed post can at worst record a real
+      transaction. E2E-verified incl. spoof rejection.
+- [x] **Activity page** (`/activity`, account menu → Activity): merged newest-first ledger of
+      platform actions — buys/sells (indexer swaps by trader), launches (by deployer),
+      referral payouts, sends (with @username counterparty links) / withdrawals / receives.
+      Live-refreshes when your own swaps index. Scope per user call: platform activity only;
+      header links to Blockscout for the full on-chain history. `GET /ledger/:address`.
+- [ ] Later: burns / collects / claims / boost purchases in the ledger (event-scan by actor
+      in the daemon is the honest source); per-token sends (currently ETH only).
 
 ## Token display — show liquidity (added 2026-07-22)
 

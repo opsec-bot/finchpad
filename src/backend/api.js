@@ -19,8 +19,8 @@ import { PONS, poolAbi, tokenAbi } from "../lib/contracts.js";
 import { publicClient } from "../lib/chain.js";
 import { getCandles, getFeatured, getRecentTokens, getTokenDetail, getTrades, priceFromSqrt } from "../lib/tokenData.js";
 import { toCandles } from "../lib/ohlc.js";
-import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions, listUnclaimedBindings } from "../indexer/db.js";
-import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable } from "./users.js";
+import { DB_PATH, openDb, listTokens, getTokenRow, listTrades, getStats, getReferralEarnings, getTraderPositions, listUnclaimedBindings, listTraderSwaps, listDeployerLaunches, listReferralPayouts, lastTradePrice } from "../indexer/db.js";
+import { applyProfileUpdate, getUserByAddress, getUserByUsername, usernameAvailable, insertTransfer, listTransfers } from "./users.js";
 import { createGithubAuth } from "./githubOauth.js";
 
 const args = process.argv.slice(2);
@@ -347,13 +347,102 @@ async function route(url) {
     return { status: 200, body: usernameAvailable(q.get("u") ?? "", q.get("address")) };
   }
 
-  // GET /users/:username — public profile + traded positions from the indexer.
+  // GET /users/:username — public profile + REAL holdings. Positions are the wallet's actual
+  // on-chain balances across every indexed token (so tokens received by transfer count too),
+  // valued at last trade; the swap history supplies invested/received for PnL. ETH balance is
+  // included so portfolio value reflects the whole account. Cached briefly — this fans out
+  // into one balanceOf per token.
   if (parts[0] === "users" && parts.length === 2) {
     const user = getUserByUsername(parts[1]);
     if (!user) return { status: 404, body: { error: "no such user" } };
     const db = getDb();
-    const positions = db ? getTraderPositions(db, user.address) : [];
-    return { status: 200, body: { ...user, positions, ethUsd: await getEthUsd() } };
+
+    const { positions, ethBalance } = await cached(`portfolio:${user.address}`, 20_000, async () => {
+      const bal = await publicClient.getBalance({ address: user.address }).catch(() => 0n);
+      if (!db) return { positions: [], ethBalance: Number(formatEther(bal)) };
+
+      const traded = new Map(getTraderPositions(db, user.address).map((p) => [p.token, p]));
+      const rows = [];
+      await Promise.all(
+        listTokens(db, { limit: 500 }).map(async (t) => {
+          const raw = await publicClient
+            .readContract({ address: t.address, abi: tokenAbi, functionName: "balanceOf", args: [user.address] })
+            .catch(() => 0n);
+          const balance = Number(formatEther(raw));
+          const hist = traded.get(t.address);
+          if (balance <= 0 && !hist) return; // never touched this token
+          const row = getTokenRow(db, t.address);
+          const price = lastTradePrice(db, t.address);
+          const valueWeth = balance * price;
+          rows.push({
+            token: t.address,
+            symbol: row?.symbol ?? "?",
+            investedWeth: hist?.investedWeth ?? 0,
+            receivedWeth: hist?.receivedWeth ?? 0,
+            netTokens: balance, // TRUE holdings, not the traded net
+            valueWeth,
+            pnlWeth: (hist?.receivedWeth ?? 0) + valueWeth - (hist?.investedWeth ?? 0),
+            trades: hist?.trades ?? 0,
+            lastTs: hist?.lastTs ?? 0,
+          });
+        }),
+      );
+      rows.sort((a, b) => b.valueWeth - a.valueWeth);
+      return { positions: rows, ethBalance: Number(formatEther(bal)) };
+    });
+
+    return { status: 200, body: { ...user, positions, ethBalance, ethUsd: await getEthUsd() } };
+  }
+
+  // GET /ledger/:address — everything this wallet did ON finchpad, merged and newest-first:
+  // trades, launches, referral payouts (indexer) + sends/withdrawals (transfers table).
+  // Anything beyond platform activity is the block explorer's job — by design.
+  if (parts[0] === "ledger") {
+    const who = parts[1];
+    if (!isAddress(who)) return { status: 400, body: { error: "invalid address" } };
+    const db = getDb();
+    const a = who.toLowerCase();
+    const rows = [];
+
+    for (const t of listTransfers(a, 100)) {
+      const outgoing = t.from_addr === a;
+      const counterparty = outgoing ? t.to_addr : t.from_addr;
+      const cpUser = getUserByAddress(counterparty);
+      rows.push({
+        type: outgoing ? (cpUser ? "send" : "withdraw") : "receive",
+        counterparty,
+        counterpartyUsername: cpUser?.username ?? null,
+        amountEth: t.value_eth,
+        ts: Number(t.ts),
+        txHash: t.tx_hash,
+      });
+    }
+    if (db) {
+      for (const s of listTraderSwaps(db, a, 100)) {
+        rows.push({
+          type: s.side, // "buy" | "sell"
+          token: s.token,
+          symbol: s.symbol,
+          tokenAmount: s.token_amount,
+          amountEth: s.weth_amount,
+          ts: Number(s.ts),
+          txHash: s.tx_hash,
+        });
+      }
+      for (const l of listDeployerLaunches(db, a, 50)) {
+        rows.push({ type: "launch", token: l.address, symbol: l.symbol, ts: Number(l.created_ts), txHash: l.launch_tx });
+      }
+      for (const r of listReferralPayouts(db, a, 100)) {
+        rows.push({ type: "referral", token: r.token, symbol: r.symbol, amountEth: r.weth_amount, ts: Number(r.ts), txHash: r.tx_hash });
+      }
+    }
+
+    rows.sort((x, y) => y.ts - x.ts);
+    return {
+      status: 200,
+      body: { address: a, count: rows.length, activity: rows.slice(0, 150), ethUsd: await getEthUsd() },
+      headers: { "cache-control": "no-store" },
+    };
   }
 
   // GET /referrals/:address — a referrer's on-chain earnings, for the referrals menu.
@@ -587,13 +676,45 @@ export const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // The only write endpoint. Authorization is the wallet signature INSIDE the body
-    // (users.js verifies it), so no session or cookie state exists to steal.
+    // Write endpoint #1: profile updates. Authorization is the wallet signature INSIDE the
+    // body (users.js verifies it), so no session or cookie state exists to steal.
     if (req.method === "POST" && url.pathname === "/users") {
       const body = await readJsonBody(req).catch((e) => ({ __err: e.message }));
       if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
       const result = await applyProfileUpdate(body);
       return send(req, res, result.ok ? 200 : 400, result, { "cache-control": "no-store" });
+    }
+
+    // Write endpoint #2: record a Send/Withdraw in the ledger. The client only supplies a tx
+    // hash — from/to/value are read FROM THE CHAIN (mined receipt required), so a spoofed
+    // post can at worst record a real transaction that really happened.
+    if (req.method === "POST" && url.pathname === "/transfers") {
+      const body = await readJsonBody(req, 1024).catch((e) => ({ __err: e.message }));
+      if (body.__err) return send(req, res, 400, { error: body.__err }, { "cache-control": "no-store" });
+      const hash = body.txHash;
+      if (typeof hash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(hash)) {
+        return send(req, res, 400, { error: "txHash must be a 0x…64 hash" }, { "cache-control": "no-store" });
+      }
+      try {
+        const [tx, receipt] = await Promise.all([
+          publicClient.getTransaction({ hash }),
+          publicClient.getTransactionReceipt({ hash }),
+        ]);
+        if (receipt.status !== "success") return send(req, res, 400, { error: "transaction reverted" }, { "cache-control": "no-store" });
+        if (!tx.to || tx.value === 0n) return send(req, res, 400, { error: "not a value transfer" }, { "cache-control": "no-store" });
+        const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+        insertTransfer({
+          txHash: hash,
+          from: tx.from,
+          to: tx.to,
+          valueEth: Number(formatEther(tx.value)),
+          ts: Number(block.timestamp),
+          block: Number(receipt.blockNumber),
+        });
+        return send(req, res, 200, { ok: true }, { "cache-control": "no-store" });
+      } catch {
+        return send(req, res, 404, { error: "transaction not found or not yet mined" }, { "cache-control": "no-store" });
+      }
     }
     if (req.method !== "GET" && req.method !== "HEAD") return send(req, res, 405, { error: "GET or HEAD only" });
 
@@ -625,7 +746,7 @@ export const server = createServer(async (req, res) => {
     // future profiles), so those paths serve the app shell and the client router takes over.
     // /tokens/robinhood/* is a PAGE path — the API's own data routes are /tokens/0x…
     const isSpaPath =
-      /^\/(launch|analytics|terms|profile(\/[\w.-]+)?|r\/[a-z0-9_]+|tokens\/robinhood\/0x[a-fA-F0-9]{40})$/.test(url.pathname);
+      /^\/(launch|analytics|terms|activity|profile(\/[\w.-]+)?|r\/[a-z0-9_]+|tokens\/robinhood\/0x[a-fA-F0-9]{40})$/.test(url.pathname);
 
     if (url.pathname === "/" || url.pathname === "/index.html" || isSpaPath) {
       const html = await readFile(WEB_INDEX, "utf8").catch(() => null);
