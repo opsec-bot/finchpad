@@ -1,0 +1,43 @@
+# finchpad on Fly.io. One always-on machine runs the API + indexer, sharing a sqlite DB on a
+# persistent volume. Do NOT scale to >1 machine: sqlite can't be shared across machines.
+app = "finchpad"
+primary_region = "iad"   # change to your closest region (e.g. "lax", "lhr", "fra")
+
+[build]
+
+[env]
+  PORT = "8787"
+  NODE_ENV = "production"
+  FINCH_CHAIN_ID = "4663"
+  FINCHPAD_MIN_BLOCK = "17288599"
+  # DBs live on the mounted volume so they survive deploys/restarts.
+  FINCHPAD_DB_PATH = "/data/finchpad.db"
+  FINCHPAD_USERS_DB_PATH = "/data/users.db"
+  # Public RH RPC. If the indexer logs Cloudflare 403s from Fly's datacenter IP, switch these
+  # to a PAID Alchemy endpoint via: fly secrets set FINCHPAD_RPC_URL=... FINCHPAD_LOGS_RPC_URL=...
+  # (secrets override [env]). Free Alchemy won't work — its eth_getLogs caps at 10 blocks.
+  FINCHPAD_RPC_URL = "https://rpc.mainnet.chain.robinhood.com"
+  FINCHPAD_LOGS_RPC_URL = "https://rpc.mainnet.chain.robinhood.com"
+  # Live contract addresses (chain 4663).
+  FINCH_FACTORY = "0x499A91F0FD04843f11700067D973D6117d224931"
+  FINCH_REGISTRY = "0xcD0993812aa63da0FaA44cCA87a78AD8f8F223A6"
+  FINCH_FEATURE_BOOST = "0x1f528017dbD7D92C50c374e0BA087a3643BdcBea"
+  GITHUB_OAUTH_SCOPE = "repo"
+  # Secrets (set separately, never in this committed file):
+  #   fly secrets set GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... GITHUB_REDIRECT_URI=https://<app>.fly.dev/auth/github/callback
+
+[[mounts]]
+  source = "finchpad_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # Keep the machine up 24/7 so the indexer keeps tailing the chain.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

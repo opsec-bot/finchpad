@@ -1,0 +1,25 @@
+# Reinstalled/rebuilt inside the image
+node_modules
+web/node_modules
+web/dist
+dist
+
+# Secrets — provided at runtime via `fly secrets`, never baked into the image.
+# (.env.production is PUBLIC build config and is intentionally NOT ignored.)
+.env
+.env.local
+web/.env.local
+
+# Local indexer state / dev DBs — prod uses the mounted volume
+data
+
+# Heavy Foundry artifacts — not needed to serve the app
+contracts/out
+contracts/cache
+contracts/broadcast
+contracts/lib
+
+# VCS / misc
+.git
+.github
+**/*.log
