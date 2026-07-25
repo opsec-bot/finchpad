@@ -51,11 +51,25 @@ export default function LogoPicker({
       ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, SIDE, SIDE);
       bitmap.close();
 
-      // Step quality down until it fits; webp first, png as the fallback for older engines.
+      // iOS Safari (< 16.4) can't *encode* webp via toDataURL — it silently returns a
+      // lossless PNG that ignores the quality argument, so the loop below could never
+      // shrink it and always hit the failure path. Detect that once and fall back to
+      // jpeg, which honors quality everywhere.
+      const webpOk = canvas.toDataURL("image/webp").startsWith("data:image/webp");
+      const type = webpOk ? "image/webp" : "image/jpeg";
+
+      // jpeg has no alpha; paint white behind the logo so transparent pixels don't
+      // render as black. destination-over fills only the areas the image left clear.
+      if (!webpOk) {
+        ctx.globalCompositeOperation = "destination-over";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, SIDE, SIDE);
+      }
+
+      // Step quality down until it fits.
       let out = "";
       for (const q of [0.85, 0.7, 0.55, 0.4]) {
-        out = canvas.toDataURL("image/webp", q);
-        if (!out.startsWith("data:image/webp")) out = canvas.toDataURL("image/png");
+        out = canvas.toDataURL(type, q);
         if (out.length * 0.75 <= TARGET_BYTES) break;
       }
       if (out.length * 0.75 > TARGET_BYTES) {
