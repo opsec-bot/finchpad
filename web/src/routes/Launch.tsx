@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BaseError, ContractFunctionRevertedError, formatEther, parseEther, zeroAddress } from "viem";
 import type { Address } from "viem";
 import { usePrivy } from "@privy-io/react-auth";
@@ -171,6 +171,91 @@ export default function Launch({
     return p;
   }, [f, wallet, githubId, githubBound]);
 
+  // The ETH sent with the launch: the fixed fee plus any opening buy. Gas is on top of this
+  // and is estimated separately below — it is the part that scales with the on-chain image.
+  const launchValue = LAUNCH_FEE + (f.creatorBuy ? parseEther(f.creatorBuy) : 0n);
+
+  // Build the exact launch args. Shared by the real launch and the pre-launch cost estimate
+  // so the number the user sees and the number they pay come from identical calldata.
+  const buildParams = (curve: ReturnType<typeof getLaunchConfig>) => ({
+    name: f.name.trim(),
+    symbol: f.symbol.trim().toUpperCase(),
+    logo: f.logo.trim(),
+    description: f.description.trim(),
+    // Normalize on the way out: @handle → canonical URL, validated above.
+    socials: {
+      twitter: (normalizeSocial("x", f.twitter) as { value: string }).value,
+      telegram: (normalizeSocial("telegram", f.telegram) as { value: string }).value,
+      discord: "",
+      website: (normalizeSocial("website", f.website) as { value: string }).value,
+      farcaster: "",
+    },
+    claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
+    githubId: f.bind === "none" ? 0n : BigInt(githubId!),
+    referrer: (f.referrer || zeroAddress) as Address,
+    feeWallet: (f.feeWallet || zeroAddress) as Address,
+    creatorBuyAmount: f.creatorBuy ? parseEther(f.creatorBuy) : 0n,
+    initialSqrtPriceX96: curve.initialSqrtPriceX96,
+    tickLower: curve.tickLower,
+    tickUpper: curve.tickUpper,
+  });
+
+  // Estimated gas + price + wallet balance, refreshed (debounced) whenever a valid form
+  // changes. Gas dominates the real cost — storing the logo on-chain roughly triples it — yet
+  // the summary used to show only the fixed fee, so a launch could cost far more than
+  // advertised and simply revert when the wallet couldn't cover it. null = not yet known.
+  const [estGas, setEstGas] = useState<bigint | null>(null);
+  const [gasPrice, setGasPrice] = useState<bigint | null>(null);
+  const [balance, setBalance] = useState<bigint | null>(null);
+
+  useEffect(() => {
+    if (!configured || !wallet || problems.length > 0) {
+      setEstGas(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const factory = addresses.factory as Address;
+        const predicted = await predictTokenAddress(factory);
+        const curve = getLaunchConfig({ tokenAddress: predicted, wethAddress: addresses.weth, startMcapEth: startMcap });
+        const account = wallet.address as Address;
+        const [g, gp, bal] = await Promise.all([
+          publicClient.estimateContractGas({
+            address: factory,
+            abi: finchFactoryAbi,
+            functionName: "launch",
+            args: [buildParams(curve)],
+            value: launchValue,
+            account,
+          }),
+          publicClient.getGasPrice(),
+          publicClient.getBalance({ address: account }),
+        ]);
+        if (!cancelled) {
+          setEstGas(g);
+          setGasPrice(gp);
+          setBalance(bal);
+        }
+      } catch {
+        // Transient RPC/estimate failure — drop the estimate rather than block the form.
+        if (!cancelled) setEstGas(null);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // buildParams closes over the same form fields listed here; keying on them keeps the
+    // estimate in sync without re-running on unrelated renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configured, wallet, problems.length, launchValue, startMcap, githubId,
+      f.logo, f.name, f.symbol, f.description, f.twitter, f.telegram, f.website, f.referrer, f.feeWallet, f.bind]);
+
+  const gasCost = estGas !== null && gasPrice !== null ? estGas * gasPrice : null;
+  const totalWei = gasCost !== null ? launchValue + gasCost : null;
+  const insufficient = balance !== null && totalWei !== null && balance < totalWei;
+
   async function onLaunch() {
     if (!wallet) return;
     setStatus({ kind: "working", msg: "preparing" });
@@ -184,28 +269,7 @@ export default function Launch({
         startMcapEth: startMcap,
       });
 
-      const params = {
-        name: f.name.trim(),
-        symbol: f.symbol.trim().toUpperCase(),
-        logo: f.logo.trim(),
-        description: f.description.trim(),
-        // Normalize on the way out: @handle → canonical URL, validated above.
-        socials: {
-          twitter: (normalizeSocial("x", f.twitter) as { value: string }).value,
-          telegram: (normalizeSocial("telegram", f.telegram) as { value: string }).value,
-          discord: "",
-          website: (normalizeSocial("website", f.website) as { value: string }).value,
-          farcaster: "",
-        },
-        claimKind: f.bind === "none" ? ClaimKind.None : f.bind === "repo" ? ClaimKind.Repo : ClaimKind.User,
-        githubId: f.bind === "none" ? 0n : BigInt(githubId!),
-        referrer: (f.referrer || zeroAddress) as Address,
-        feeWallet: (f.feeWallet || zeroAddress) as Address,
-        creatorBuyAmount: f.creatorBuy ? parseEther(f.creatorBuy) : 0n,
-        initialSqrtPriceX96: curve.initialSqrtPriceX96,
-        tickLower: curve.tickLower,
-        tickUpper: curve.tickUpper,
-      };
+      const params = buildParams(curve);
 
       // Simulate first: a revert here costs nothing and catches the address-prediction race
       // before the user is asked to sign anything.
@@ -215,7 +279,7 @@ export default function Launch({
         abi: finchFactoryAbi,
         functionName: "launch",
         args: [params],
-        value: LAUNCH_FEE + (f.creatorBuy ? parseEther(f.creatorBuy) : 0n),
+        value: launchValue,
         account: wallet.address as Address,
       });
 
@@ -235,7 +299,7 @@ export default function Launch({
   }
 
   const working = status.kind === "working";
-  const canLaunch = authenticated && problems.length === 0 && !working;
+  const canLaunch = authenticated && problems.length === 0 && !working && !insufficient;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -482,13 +546,29 @@ export default function Launch({
                   label="Fees paid to"
                   value={githubBound ? "escrow, until claimed" : f.feeWallet ? "custom wallet" : "you"}
                 />
+                <SummaryLine
+                  label="Est. network fee (gas)"
+                  value={
+                    problems.length > 0
+                      ? "—"
+                      : gasCost !== null
+                        ? `${(+formatEther(gasCost)).toFixed(4)} ETH${ethUsd ? ` (${usd(+formatEther(gasCost) * ethUsd)})` : ""}`
+                        : "estimating…"
+                  }
+                />
                 <Separator className="my-1" />
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">You&apos;ll pay</span>
                   <span className="tnum text-base font-semibold">
-                    {total.toFixed(4)} ETH{ethUsd ? ` (${usd(total * ethUsd)})` : ""}
+                    {totalWei !== null
+                      ? `${(+formatEther(totalWei)).toFixed(4)} ETH${ethUsd ? ` (${usd(+formatEther(totalWei) * ethUsd)})` : ""}`
+                      : `${total.toFixed(4)} ETH + gas`}
                   </span>
                 </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Gas is paid on top of the fee and scales with image size — the logo is stored on-chain, so a larger
+                  image costs more to launch.
+                </p>
               </div>
 
               {problems.length > 0 && (
@@ -497,6 +577,14 @@ export default function Launch({
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
+              )}
+
+              {insufficient && balance !== null && totalWei !== null && (
+                <p className="mx-4 mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  Wallet has {(+formatEther(balance)).toFixed(5)} ETH, but this launch needs about{" "}
+                  {(+formatEther(totalWei)).toFixed(5)} ETH including gas to store the image on-chain. Add ETH, or use a
+                  smaller image (or none).
+                </p>
               )}
 
               <div className="px-4 pb-4">
