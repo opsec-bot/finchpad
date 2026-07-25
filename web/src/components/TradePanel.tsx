@@ -55,6 +55,9 @@ export default function TradePanel({
   const [gasEth, setGasEth] = useState<number | null>(null);
   const [ethBalance, setEthBalance] = useState<bigint | null>(null);
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
+  // Tracked here, not just inside execute(), because an unapproved sell costs two
+  // transactions of gas — the fee estimate and the affordability check both need to know.
+  const [allowance, setAllowance] = useState<bigint | null>(null);
 
   const slippageBps = slippage === "auto" ? AUTO_SLIPPAGE : slippage;
   const priceReady = ethUsd != null && ethUsd > 0;
@@ -80,14 +83,16 @@ export default function TradePanel({
   }
 
   const refreshBalances = useCallback(async () => {
-    if (!wallet) return setEthBalance(null), setTokenBalance(null);
+    if (!wallet) return setEthBalance(null), setTokenBalance(null), setAllowance(null);
     const addr = wallet.address as Address;
-    const [eth, tok] = await Promise.all([
+    const [eth, tok, allow] = await Promise.all([
       publicClient.getBalance({ address: addr }),
       publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [addr] }),
+      routerAllowance(publicClient, token, addr),
     ]);
     setEthBalance(eth);
     setTokenBalance(tok as bigint);
+    setAllowance(allow);
   }, [wallet, token]);
 
   useEffect(() => {
@@ -119,7 +124,12 @@ export default function TradePanel({
         setQ(result);
         setQuoteErr(null);
         const gasPrice = await publicClient.getGasPrice();
-        if (mine === seq.current) setGasEth(Number(formatEther(gasPrice * (side === "buy" ? 220_000n : 260_000n))));
+        // A sell that still needs an ERC-20 approval is two transactions, not one. Quoting
+        // only the swap understates the fee and, worse, understates what the wallet must
+        // hold — which is the whole point of the affordability check below.
+        const needsApproval = side === "sell" && allowance !== null && allowance < parseEther(tradeAmountStr);
+        const gasUnits = side === "buy" ? 220_000n : needsApproval ? 320_000n : 260_000n;
+        if (mine === seq.current) setGasEth(Number(formatEther(gasPrice * gasUnits)));
       } catch (err) {
         if (mine !== seq.current) return;
         setQ(null);
@@ -129,7 +139,7 @@ export default function TradePanel({
       }
     }, QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [tradeAmountStr, side, slippageBps, token, pool, tokenIsToken0]);
+  }, [tradeAmountStr, side, slippageBps, token, pool, tokenIsToken0, allowance]);
 
   const balance = side === "buy" ? ethBalance : tokenBalance;
 
@@ -141,8 +151,19 @@ export default function TradePanel({
       if (side === "sell" && want > balance) return `Not enough ${symbol}.`;
     }
     if (slippage !== "auto" && (slippageBps <= 0 || slippageBps > 5000)) return "Slippage must be between 0% and 50%.";
+    // A sell PAYS OUT ETH but still COSTS ETH to send, so the buy-side check above misses
+    // it entirely: a wallet holding only tokens got a green Sell button and found out at
+    // signing time, as a bare "execution reverted". Check the gas the trade actually needs
+    // against what the wallet actually holds, and say the numbers out loud.
+    if (ethBalance !== null && gasEth !== null && gasEth > 0) {
+      const gasCost = parseEther(gasEth.toFixed(18));
+      const spending = side === "buy" ? parseEther(tradeAmountStr) : 0n;
+      if (ethBalance < spending + gasCost) {
+        return `Not enough ETH for gas — this needs about ${gasEth.toFixed(6)} ETH and this wallet holds ${Number(formatEther(ethBalance)).toFixed(6)}.`;
+      }
+    }
     return null;
-  }, [tradeAmountStr, balance, side, symbol, slippage, slippageBps]);
+  }, [tradeAmountStr, balance, side, symbol, slippage, slippageBps, ethBalance, gasEth]);
 
   const canTrade = authenticated && wallet && q && !problem && !busy && !quoting;
   const impactPct = q ? q.priceImpact * 100 : 0;
@@ -151,9 +172,17 @@ export default function TradePanel({
     if (balance === null) return;
     // Keep a sliver of ETH back for gas rather than handing over a doomed transaction.
     const usable = side === "buy" ? (balance * 99n) / 100n : balance;
-    const eth = Number(formatEther((usable * BigInt(pct)) / 100n));
+    const slice = (usable * BigInt(pct)) / 100n;
     // In USD buy mode the field holds dollars, so convert the ETH slice to its USD value.
-    setAmount(side === "buy" && payCcy === "USD" && priceReady ? (eth * (ethUsd as number)).toFixed(2) : String(eth));
+    if (side === "buy" && payCcy === "USD" && priceReady) {
+      setAmount((Number(formatEther(slice)) * (ethUsd as number)).toFixed(2));
+      return;
+    }
+    // formatEther straight off the bigint. The old Number(...) round-trip here truncated an
+    // 18-decimal balance to ~16 significant digits, so "Sell 100%" of a balance with dust
+    // could round UP past what you actually hold — and a dust-sized balance came back in
+    // exponential notation ("1e-16"), which parseEther cannot read at all.
+    setAmount(formatEther(slice));
   }
 
   async function execute() {

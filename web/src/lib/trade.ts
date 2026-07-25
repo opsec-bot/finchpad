@@ -205,29 +205,79 @@ export async function swap(
 }
 
 /**
+ * Every message-bearing string in an error, outermost first.
+ *
+ * viem nests: a failed write is a ContractFunctionExecutionError wrapping a
+ * CallExecutionError wrapping the raw RpcRequestError, and the node's own text — the part
+ * that actually says what went wrong — lands in `details` on one of the inner links. viem
+ * never copies it up, so reading only the top level (or only one `.cause` deep) sees a
+ * generic "execution reverted" and nothing else. Walk the whole chain and read every field.
+ */
+function errorStrings(err: unknown): { reasons: string[]; details: string[]; rest: string[]; all: string } {
+  const reasons: string[] = [];
+  const details: string[] = [];
+  const rest: string[] = [];
+  const seen = new Set<unknown>();
+
+  let node = err as Record<string, unknown> | undefined;
+  // Depth cap and a seen-set: provider errors are occasionally self-referential, and an
+  // error handler that hangs is worse than one that reports badly.
+  for (let depth = 0; node && typeof node === "object" && depth < 10; depth++) {
+    if (seen.has(node)) break;
+    seen.add(node);
+    const push = (bucket: string[], v: unknown) => {
+      if (typeof v === "string" && v.trim()) bucket.push(v);
+    };
+    push(reasons, node.reason);
+    push(details, node.details);
+    push(rest, node.shortMessage);
+    push(rest, node.message);
+    if (Array.isArray(node.metaMessages)) for (const m of node.metaMessages) push(rest, m);
+    node = node.cause as Record<string, unknown> | undefined;
+  }
+
+  return { reasons, details, rest, all: [...reasons, ...details, ...rest].join(" | ") };
+}
+
+/**
  * Turn a wallet/RPC error into something a trader can act on.
  *
  * The defaults are unusable: viem surfaces a wall of request detail, and the interesting
  * part (a revert string like "Too little received", or a user rejection) is buried.
+ *
+ * Matching runs against the whole flattened chain, so ORDER IS LOAD-BEARING — the most
+ * specific cause has to be tested before any broader pattern that its text also satisfies.
  */
 export function readableError(err: unknown): string {
-  const e = err as { shortMessage?: string; message?: string; cause?: { reason?: string } };
-  const raw = e?.cause?.reason || e?.shortMessage || e?.message || "Transaction failed";
+  const { reasons, details, rest, all } = errorStrings(err);
+  // A revert reason beats the node's raw text, which beats viem's generic framing.
+  const raw = reasons[0] ?? details[0] ?? rest[0] ?? "Transaction failed";
 
-  if (/User rejected|denied transaction|User denied/i.test(raw)) return "You rejected the transaction.";
-  if (/Too little received|STF|amountOutMinimum/i.test(raw))
+  if (/User rejected|denied transaction|User denied/i.test(all)) return "You rejected the transaction.";
+
+  // No native ETH to pay for gas. The node phrases this half a dozen ways and viem buries
+  // all of them in `details`, so this used to fall through to a bare "execution reverted" —
+  // exactly the wallet that just received tokens from elsewhere and holds no ETH yet.
+  // Must precede the generic "exceeds the balance" ERC-20 case below, which its text also
+  // matches but which reads as the wrong failure entirely.
+  if (
+    /insufficient funds|exceeds the balance of the account|total cost.*of executing this transaction|gas required exceeds|intrinsic gas too low|max fee per gas less than block base fee/i.test(
+      all,
+    )
+  )
+    return "Not enough ETH in this wallet to pay for gas. Add ETH and try again.";
+
+  if (/Too little received|amountOutMinimum/i.test(all))
     return "Price moved beyond your slippage tolerance. Raise slippage or try a smaller size.";
-  if (/insufficient funds/i.test(raw)) return "Not enough ETH to cover the trade plus gas.";
-  // viem's gas-affordability error says "…exceeds the balance of the account" — that's an
-  // empty-of-ETH wallet, NOT a token balance problem. Must be matched before the generic
-  // "exceeds the balance" ERC20 case or it reads as the wrong failure entirely.
-  if (/exceeds the balance of the account|total cost.*of executing this transaction/i.test(raw))
-    return "Not enough ETH in your wallet to pay for gas. Add ETH and try again.";
-  if (/TF\b/.test(raw)) return "The token blocked this transfer — it may still be inside its anti-snipe window.";
-  if (/SPL|LOK/.test(raw)) return "The pool rejected the price limit. Try again.";
-  if (/nonce too (high|low)/i.test(raw))
+  // STF is Uniswap's safeTransferFrom failure — a balance/allowance problem, not slippage.
+  // Telling this user to raise slippage sends them at the one knob that cannot help.
+  if (/\bSTF\b/.test(all))
+    return "The token transfer was rejected — check your balance and that the approval went through.";
+  if (/\bTF\b/.test(all)) return "The token blocked this transfer — it may still be inside its anti-snipe window.";
+  if (/\b(SPL|LOK)\b/.test(all)) return "The pool rejected the price limit. Try again.";
+  if (/nonce too (high|low)/i.test(all))
     return "Your wallet's nonce is out of sync with the chain. In MetaMask: Settings, Advanced, Clear activity tab data.";
-  if (/transfer amount exceeds|exceeds the balance/i.test(raw)) return "Amount exceeds your token balance.";
+  if (/transfer amount exceeds|exceeds the balance/i.test(all)) return "Amount exceeds your token balance.";
 
   // Keep it to one line; the console has the full object for anyone debugging.
   return raw.split("\n")[0].slice(0, 200);
