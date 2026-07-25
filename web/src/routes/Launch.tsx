@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { formatEther, parseEther, zeroAddress } from "viem";
+import { BaseError, ContractFunctionRevertedError, formatEther, parseEther, zeroAddress } from "viem";
 import type { Address } from "viem";
 import { usePrivy } from "@privy-io/react-auth";
 import {
@@ -69,6 +69,36 @@ function normalizeSocial(kind: "x" | "telegram" | "website", raw: string): { val
 }
 
 const LAUNCH_FEE = parseEther("0.0005");
+
+/**
+ * Turn a viem launch failure into a message a creator can act on. The factory reverts with
+ * custom errors (see finchFactoryAbi); viem can only decode them into a name when those error
+ * definitions are present in the ABI, so this reads the decoded name and maps the ones a
+ * creator can do something about. Anything unrecognized falls back to viem's short message.
+ */
+function launchErrorMessage(err: unknown): string {
+  let name: string | undefined;
+  if (err instanceof BaseError) {
+    const revert = err.walk((e) => e instanceof ContractFunctionRevertedError);
+    if (revert instanceof ContractFunctionRevertedError) {
+      name = revert.data?.errorName ?? revert.reason ?? undefined;
+    }
+  }
+  switch (name) {
+    case "NoLiquidityMinted":
+      return "Another launch landed first, so the predicted token address shifted. Nothing was spent beyond gas. Press launch again.";
+    case "SelfReferral":
+      return "The referrer is your own wallet, which the factory rejects. Clear the referrer field under Advanced.";
+    case "InsufficientLaunchFee":
+      return "The transaction didn't include the full launch fee. Make sure your wallet has enough ETH to cover the fee plus gas.";
+    case "LockerNotSet":
+      return "Launching isn't fully configured on this deployment yet (the locker is unset). This is a setup issue on our side, not something you can fix.";
+    case "FeeForwardFailed":
+    case "RefundFailed":
+      return "The launch fee transfer or refund failed. Please try again.";
+  }
+  return (err as { shortMessage?: string }).shortMessage ?? (err as Error).message ?? "failed";
+}
 
 type Status = { kind: "idle" | "working" | "done" | "error"; msg?: string; hash?: string; token?: string };
 type Bind = "none" | "repo" | "user";
@@ -200,13 +230,7 @@ export default function Launch({
       setStatus({ kind: "done", hash, token: predicted, msg: "launched" });
       onLaunched(predicted);
     } catch (err) {
-      const raw = (err as { shortMessage?: string }).shortMessage ?? (err as Error).message ?? "failed";
-      setStatus({
-        kind: "error",
-        msg: /NoLiquidityMinted/i.test(raw)
-          ? "Another launch landed first, so the predicted token address shifted. Nothing was spent beyond gas. Press launch again."
-          : raw,
-      });
+      setStatus({ kind: "error", msg: launchErrorMessage(err) });
     }
   }
 
