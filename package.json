@@ -30,6 +30,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "viem": "^2.55.5"
+    "viem": "^2.55.10"
   }
 }
