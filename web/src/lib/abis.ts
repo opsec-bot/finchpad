@@ -11,6 +11,17 @@ export const finchFactoryAbi = parseAbi([
   // reverts with empty data. test/abiSync.test.js pins these against the compiled artifacts.
   "function launch((string name,string symbol,string logo,string description,(string twitter,string telegram,string discord,string website,string farcaster) socials,uint8 claimKind,uint256 githubId,uint160 initialSqrtPriceX96,int24 tickLower,int24 tickUpper,address referrer,address feeWallet,uint256 creatorBuyAmount) p) payable returns (address token, address pool, uint256 positionId, uint256 amountOut)",
   "event Launched(address indexed token, address indexed creator, address pool, uint256 positionId, bool tokenIsToken0)",
+  // Custom errors — REQUIRED for viem to decode a revert into a name. Without these every
+  // revert surfaces as the generic "the contract function launch reverted", and the retry
+  // guidance below (which keys off NoLiquidityMinted) can never fire. Kept in sync with the
+  // errors declared in FinchFactory.sol.
+  "error LockerNotSet()",
+  "error SelfReferral()",
+  "error InsufficientLaunchFee()",
+  "error FeeForwardFailed()",
+  "error RefundFailed()",
+  "error NoLiquidityMinted()",
+  "error ZeroAddress()",
 ]);
 
 export const finchLockerAbi = parseAbi([
